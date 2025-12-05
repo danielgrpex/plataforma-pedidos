@@ -1,7 +1,5 @@
-// app/layout.tsx
 import "./globals.css";
 import type { Metadata } from "next";
-import type React from "react";
 
 export const metadata: Metadata = {
   title: "Sistema de información PEX | Industrias Plásticas GR",
@@ -16,7 +14,11 @@ export default function RootLayout({
 }) {
   return (
     <html lang="es">
-      <body className="min-h-screen bg-slate-950 text-slate-50 antialiased">
+      <head>
+        {/* Fuerza esquema de color claro */}
+        <meta name="color-scheme" content="light" />
+      </head>
+      <body className="min-h-screen bg-slate-50 text-slate-900 antialiased">
         {children}
       </body>
     </html>
