@@ -32,10 +32,10 @@ export default function HomePage() {
               Inicio
             </Link>
             <Link href="/ventas" className="hover:text-slate-900">
-              Ventas
+              Comercial
             </Link>
-            <Link href="/logistica" className="hover:text-slate-900">
-              Logística
+            <Link href="/planeacion" className="hover:text-slate-900">
+              Planeación
             </Link>
             <Link href="/produccion" className="hover:text-slate-900">
               Producción
@@ -81,11 +81,11 @@ export default function HomePage() {
                   PEX
                   <span className="absolute inset-x-0 bottom-0 -z-10 h-3 translate-y-1 rounded-md bg-emerald-100" />
                 </span>{" "}
-                para Ventas, Logística, Producción y Almacenes.
+                - Proceso de Extrusión.
               </h1>
               <p className="max-w-xl text-sm leading-relaxed text-slate-600">
                 Un solo lugar para crear pedidos, coordinar despachos, generar
-                órdenes de trabajo y controlar inventarios conectados con Google
+                órdenes de trabajo y produciión, controlar inventarios conectados con Google
                 Sheets. Diseñado a la medida de los procesos de extrusión de GR.
               </p>
             </div>
@@ -141,12 +141,12 @@ export default function HomePage() {
               <ResumenItem
                 titulo="Pedidos"
                 descripcion="Creación de pedidos comerciales y seguimiento."
-                etiqueta="Ventas"
+                etiqueta="Comercial"
                 color="text-sky-600 bg-sky-50"
               />
               <ResumenItem
-                titulo="OT de Corte"
-                descripcion="Generación automática de órdenes de trabajo."
+                titulo="Programación"
+                descripcion="Generación automática de órdenes de trabajo y producción."
                 etiqueta="Producción"
                 color="text-violet-600 bg-violet-50"
               />
@@ -182,24 +182,30 @@ export default function HomePage() {
               sigla="VT"
               titulo="Ventas"
               descripcion="Registro de pedidos, condiciones comerciales y estado de cada solicitud."
-              estado="En producción"
+              estado="Activo"
             />
             <ModuloCard
-              sigla="LG"
-              titulo="Logística"
-              descripcion="Planificación de despachos y preparación de pedidos para transporte."
-              estado="En construcción"
+              sigla="PL"
+              titulo="Planeación"
+              descripcion="Verificación y clasificación item por item de cada pedido."
+              estado="Activo"
             />
             <ModuloCard
               sigla="PR"
               titulo="Producción"
-              descripcion="Órdenes de corte y extrusión conectadas al Kardex central."
-              estado="En producción"
+              descripcion="Generación de órdenes de corte y extrusión."
+              estado="En construcción"
             />
             <ModuloCard
               sigla="AL"
               titulo="Almacenes"
               descripcion="Inventarios de MP, producto en proceso y producto terminado."
+              estado="En construcción"
+            />
+            <ModuloCard
+              sigla="LG"
+              titulo="Logística"
+              descripcion="Programación de despachos, facturación y seguimiento de entregas."
               estado="En construcción"
             />
           </div>
@@ -212,7 +218,7 @@ export default function HomePage() {
               Cómo fluye la información
             </h2>
             <p className="text-xs text-slate-500">
-              La misma OT se alimenta desde Ventas y termina en Almacenes, sin
+              Desde comercial se alimenta la información y termina en el despacho de cada producto, sin
               volver a digitar la información.
             </p>
           </div>
@@ -220,23 +226,28 @@ export default function HomePage() {
           <div className="grid gap-3 md:grid-cols-4">
             <PasoCard
               numero="01"
-              titulo="Ventas"
-              descripcion="Se crea el pedido comercial con toda la información del cliente."
+              titulo="Comercial"
+              descripcion="Se crea el pedido comercial con toda la información del cliente y productos."
             />
             <PasoCard
               numero="02"
-              titulo="Logística"
-              descripcion="Se planean despachos y se preparan los pedidos para transporte."
+              titulo="Planeación"
+              descripcion="Verifica que comercial ingrese correctamente el pedido y lo clasifica según inventario."
             />
             <PasoCard
               numero="03"
               titulo="Producción"
-              descripcion="Se generan las órdenes de corte y extrusión conectadas a Kardex."
+              descripcion="Programa lineas de producción y generan las órdenes de corte y extrusión."
             />
             <PasoCard
               numero="04"
               titulo="Almacenes"
-              descripcion="Se recibe, controla inventario y se alimentan los análisis para el resto del sistema."
+              descripcion="Recibe, controla inventario y se alimentan los análisis para el resto del sistema."
+            />
+            <PasoCard
+              numero="05"
+              titulo="Logística"
+              descripcion="Factura, programa despachos y hace seguimiento de entrega al cliente."
             />
           </div>
         </section>
@@ -314,8 +325,10 @@ function ModuloCard({
 
       <Link
         href={
-          titulo === "Ventas"
-            ? "/ventas"
+          titulo === "Comercial"
+            ? "/comercial"
+            : titulo === "Planeación"
+            ? "/planeacion"
             : titulo === "Producción"
             ? "/produccion"
             : titulo === "Logística"
