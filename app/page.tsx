@@ -1,6 +1,5 @@
 // app/page.tsx
 import Link from "next/link";
-import Image from "next/image";
 
 export default function HomePage() {
   return (
@@ -85,8 +84,9 @@ export default function HomePage() {
               </h1>
               <p className="max-w-xl text-sm leading-relaxed text-slate-600">
                 Un solo lugar para crear pedidos, coordinar despachos, generar
-                órdenes de trabajo y producción, controlar inventarios conectados con Google
-                Sheets. Diseñado a la medida de los procesos de extrusión de GR.
+                órdenes de trabajo y producción, controlar inventarios
+                conectados con Google Sheets. Diseñado a la medida de los
+                procesos de extrusión de GR.
               </p>
             </div>
 
@@ -218,8 +218,8 @@ export default function HomePage() {
               Cómo fluye la información
             </h2>
             <p className="text-xs text-slate-500">
-              Desde comercial se alimenta la información y termina en el despacho de cada producto, sin
-              volver a digitar la información.
+              Desde comercial se alimenta la información y termina en el
+              despacho de cada producto, sin volver a digitar la información.
             </p>
           </div>
 
@@ -297,7 +297,7 @@ function ModuloCard({
   descripcion: string;
   estado: string;
 }) {
-  const esProduccion = estado === "Activo";
+  const esActivo = estado === "Activo";
 
   return (
     <div className="flex flex-col gap-2 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -314,7 +314,7 @@ function ModuloCard({
         <span
           className={
             "rounded-full px-2 py-0.5 text-[10px] font-medium " +
-            (esProduccion
+            (esActivo
               ? "bg-emerald-50 text-emerald-700"
               : "bg-amber-50 text-amber-700")
           }
