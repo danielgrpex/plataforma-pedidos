@@ -1,6 +1,16 @@
 @import "tailwindcss";
 
 :root {
+  /* Fuerza esquema de color claro para todo el sitio */
+  color-scheme: light;
+}
+
+html, body {
+  background-color: #f9fafb; /* similar a bg-slate-50 */
+  color: #020617;            /* similar a text-slate-900 */
+}
+
+:root {
   --background: #ffffff;
   --foreground: #171717;
 }

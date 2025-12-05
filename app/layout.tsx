@@ -15,7 +15,7 @@ export default function RootLayout({
   return (
     <html lang="es">
       <head>
-        {/* Fuerza esquema de color claro */}
+        {/* Muy importante: indicamos que la página sólo usa esquema claro */}
         <meta name="color-scheme" content="light" />
       </head>
       <body className="min-h-screen bg-slate-50 text-slate-900 antialiased">
