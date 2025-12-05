@@ -85,7 +85,7 @@ export default function HomePage() {
               </h1>
               <p className="max-w-xl text-sm leading-relaxed text-slate-600">
                 Un solo lugar para crear pedidos, coordinar despachos, generar
-                órdenes de trabajo y produciión, controlar inventarios conectados con Google
+                órdenes de trabajo y producción, controlar inventarios conectados con Google
                 Sheets. Diseñado a la medida de los procesos de extrusión de GR.
               </p>
             </div>
@@ -179,8 +179,8 @@ export default function HomePage() {
 
           <div className="grid gap-4 md:grid-cols-2">
             <ModuloCard
-              sigla="VT"
-              titulo="Ventas"
+              sigla="CO"
+              titulo="Comercial"
               descripcion="Registro de pedidos, condiciones comerciales y estado de cada solicitud."
               estado="Activo"
             />
@@ -297,7 +297,7 @@ function ModuloCard({
   descripcion: string;
   estado: string;
 }) {
-  const esProduccion = estado === "En producción";
+  const esProduccion = estado === "Activo";
 
   return (
     <div className="flex flex-col gap-2 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
