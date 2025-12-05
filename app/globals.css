@@ -1,20 +1,19 @@
 @import "tailwindcss";
 
+/* Siempre modo claro */
 :root {
-  /* Fuerza esquema de color claro para todo el sitio */
   color-scheme: light;
+  --background: #f9fafb; /* fondo claro fijo */
+  --foreground: #020617; /* texto oscuro fijo */
 }
 
-html, body {
-  background-color: #f9fafb; /* similar a bg-slate-50 */
-  color: #020617;            /* similar a text-slate-900 */
+html,
+body {
+  background-color: #f9fafb; /* por seguridad */
+  color: #020617;
 }
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
+/* Tema base para Tailwind v4 */
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -22,13 +21,7 @@ html, body {
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
+/* NO pongas @media prefers-color-scheme aquí */
 body {
   background: var(--background);
   color: var(--foreground);
