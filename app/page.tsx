@@ -1,198 +1,355 @@
 // app/page.tsx
+import Link from "next/link";
 import Image from "next/image";
-
-const navItems = [
-  { label: "Inicio", href: "#inicio" },
-  { label: "Ventas", href: "#ventas" },
-  { label: "Logística", href: "#logistica" },
-  { label: "Producción", href: "#produccion" },
-  { label: "Almacén", href: "#almacen" },
-];
-
-function SiteHeader() {
-  return (
-    <header className="sticky top-0 z-40 bg-white/80 backdrop-blur border-b border-slate-100">
-      {/* Línea superior con gradiente */}
-      <div className="h-1 bg-gradient-to-r from-emerald-400 via-sky-400 to-purple-400" />
-
-      <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6">
-        {/* Logo + título */}
-        <div className="flex items-center gap-3">
-          <div className="relative flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-emerald-500 shadow-sm">
-            <Image
-              src="/logo-gr.png"
-              alt="Industrias Plásticas GR"
-              fill
-              className="object-contain p-1"
-            />
-          </div>
-
-          <div className="leading-tight">
-            <p className="text-[10px] font-medium uppercase tracking-[0.24em] text-slate-400">
-              Industrias Plásticas GR
-            </p>
-            <p className="flex items-center gap-2 text-sm font-medium text-slate-900">
-              Sistema de información
-              {/* Badge PEX elegante */}
-              <span className="relative inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
-                <span className="relative z-10">PEX</span>
-                <span className="absolute inset-0 -z-0 rounded-full bg-emerald-400/30 blur-[6px]" />
-              </span>
-            </p>
-          </div>
-        </div>
-
-        {/* Menú */}
-        <nav className="hidden items-center gap-6 text-sm text-slate-600 md:flex">
-          {navItems.map((item) => (
-            <a
-              key={item.href}
-              href={item.href}
-              className="relative transition-colors hover:text-slate-900"
-            >
-              {item.label}
-              <span className="absolute -bottom-1 left-0 h-[2px] w-0 rounded-full bg-emerald-500 transition-all duration-200 group-hover:w-full" />
-            </a>
-          ))}
-        </nav>
-
-        {/* Botones */}
-        <div className="flex items-center gap-3">
-          <button className="hidden text-xs font-medium text-slate-500 hover:text-slate-900 sm:inline-flex">
-            Soporte interno
-          </button>
-          <a
-            href="/produccion" // cámbialo a donde inicie tu app
-            className="inline-flex items-center rounded-full bg-slate-900 px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-slate-800"
-          >
-            Entrar al sistema
-          </a>
-        </div>
-      </div>
-    </header>
-  );
-}
 
 export default function HomePage() {
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900">
-      <SiteHeader />
+    <div className="min-h-screen">
+      {/* Barra superior */}
+      <header className="border-b border-slate-200 bg-white">
+        {/* Línea de color muy sutil arriba */}
+        <div className="h-0.5 w-full bg-gradient-to-r from-emerald-500 via-sky-400 to-violet-500" />
 
-      <main
-        id="inicio"
-        className="mx-auto max-w-6xl px-4 pb-16 pt-10 sm:px-6 sm:pt-16 sm:pb-24"
-      >
-        {/* HERO PRINCIPAL */}
-        <section className="grid gap-10 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)] lg:items-start">
-          <div>
-            <span className="inline-flex items-center rounded-full border border-emerald-100 bg-emerald-50 px-3 py-1 text-[11px] font-medium uppercase tracking-[0.18em] text-emerald-700">
-              ● Sistema interno
-            </span>
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
+          {/* Marca */}
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-emerald-600 text-xs font-semibold text-white shadow-sm">
+              GR
+            </div>
+            <div className="flex flex-col">
+              <span className="text-xs font-medium uppercase tracking-[0.18em] text-slate-400">
+                Industrias Plásticas
+              </span>
+              <span className="text-sm font-semibold text-slate-900">
+                Sistema de información PEX
+              </span>
+            </div>
+          </div>
 
-            <h1 className="mt-6 max-w-xl text-3xl font-semibold tracking-tight text-slate-900 sm:text-4xl lg:text-[2.6rem]">
-              Sistema de información{" "}
-              <span className="relative inline-block">
-                PEX
-                <span className="absolute inset-x-0 bottom-0 h-2 rounded-full bg-emerald-200/70" />
-              </span>{" "}
-              para Ventas, Logística, Producción y Almacenes.
-            </h1>
+          {/* Navegación */}
+          <nav className="hidden items-center gap-6 text-sm font-medium text-slate-600 md:flex">
+            <Link href="/" className="text-slate-900">
+              Inicio
+            </Link>
+            <Link href="/ventas" className="hover:text-slate-900">
+              Ventas
+            </Link>
+            <Link href="/logistica" className="hover:text-slate-900">
+              Logística
+            </Link>
+            <Link href="/produccion" className="hover:text-slate-900">
+              Producción
+            </Link>
+            <Link href="/almacen" className="hover:text-slate-900">
+              Almacén
+            </Link>
+            <Link
+              href="/soporte"
+              className="rounded-full border border-slate-200 px-3 py-1 text-xs font-medium text-slate-500 hover:border-slate-300 hover:text-slate-700"
+            >
+              Soporte interno
+            </Link>
+          </nav>
 
-            <p className="mt-5 max-w-xl text-sm leading-relaxed text-slate-600">
-              Un solo lugar para crear pedidos, coordinar despachos, generar
-              órdenes de trabajo y controlar inventarios conectados con Google
-              Sheets. Diseñado a la medida de los procesos de extrusión de GR.
-            </p>
+          {/* Botón entrar */}
+          <div className="flex items-center gap-2">
+            <Link
+              href="/produccion"
+              className="hidden rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 md:inline-flex"
+            >
+              Entrar al sistema
+            </Link>
+          </div>
+        </div>
+      </header>
 
-            <div className="mt-6 flex flex-wrap gap-3">
-              <a
+      {/* Contenido principal */}
+      <main className="mx-auto max-w-6xl px-6 pb-16 pt-10">
+        {/* Hero */}
+        <section className="grid gap-10 md:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)] md:items-start">
+          {/* Texto principal */}
+          <div className="space-y-8">
+            <div className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700 ring-1 ring-emerald-100">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+              Sistema interno · PEX
+            </div>
+
+            <div className="space-y-4">
+              <h1 className="text-3xl font-semibold leading-tight text-slate-900 sm:text-4xl">
+                Sistema de información{" "}
+                <span className="relative inline-flex items-center">
+                  PEX
+                  <span className="absolute inset-x-0 bottom-0 -z-10 h-3 translate-y-1 rounded-md bg-emerald-100" />
+                </span>{" "}
+                para Ventas, Logística, Producción y Almacenes.
+              </h1>
+              <p className="max-w-xl text-sm leading-relaxed text-slate-600">
+                Un solo lugar para crear pedidos, coordinar despachos, generar
+                órdenes de trabajo y controlar inventarios conectados con Google
+                Sheets. Diseñado a la medida de los procesos de extrusión de GR.
+              </p>
+            </div>
+
+            {/* Botones */}
+            <div className="flex flex-wrap gap-3">
+              <Link
                 href="/produccion"
-                className="inline-flex items-center rounded-full bg-slate-900 px-5 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-slate-800"
+                className="rounded-full bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700"
               >
                 Entrar al sistema
-              </a>
+              </Link>
               <a
                 href="#modulos"
-                className="inline-flex items-center rounded-full border border-slate-200 bg-white px-5 py-2.5 text-sm font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
+                className="rounded-full border border-slate-200 bg-white px-5 py-2.5 text-sm font-medium text-slate-700 hover:border-slate-300"
               >
                 Ver módulos
               </a>
             </div>
 
-            <div className="mt-6 flex flex-wrap gap-2 text-[11px] text-slate-500">
-              <span className="rounded-full bg-white px-3 py-1 shadow-sm">
+            {/* Chips */}
+            <div className="flex flex-wrap gap-2 text-[11px] text-slate-500">
+              <span className="rounded-full bg-white px-3 py-1 shadow-sm ring-1 ring-slate-100">
                 Integrado con Google Sheets
               </span>
-              <span className="rounded-full bg-white px-3 py-1 shadow-sm">
+              <span className="rounded-full bg-white px-3 py-1 shadow-sm ring-1 ring-slate-100">
                 Procesos de corte y extrusión
               </span>
-              <span className="rounded-full bg-white px-3 py-1 shadow-sm">
+              <span className="rounded-full bg-white px-3 py-1 shadow-sm ring-1 ring-slate-100">
                 Hecho a la medida de GR
               </span>
             </div>
           </div>
 
-          {/* Tarjeta resumen del sistema */}
-          <aside className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-100">
-            <div className="flex items-center justify-between">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
-                Resumen del sistema
-              </p>
-              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
+          {/* Resumen del sistema */}
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="mb-4 flex items-center justify-between gap-4">
+              <div>
+                <p className="text-xs font-medium uppercase tracking-[0.18em] text-slate-400">
+                  Resumen del sistema
+                </p>
+                <p className="text-xs text-slate-500">
+                  Vista rápida de los módulos conectados.
+                </p>
+              </div>
+              <div className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1 text-[11px] font-medium text-emerald-700">
                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
                 Online
-              </span>
+              </div>
             </div>
 
-            <div className="mt-4 space-y-2 text-xs">
-              <div className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2">
-                <div>
-                  <p className="font-medium text-slate-800">Pedidos</p>
-                  <p className="text-[11px] text-slate-500">
-                    Creación de pedidos comerciales y seguimiento.
-                  </p>
-                </div>
-                <span className="text-[11px] font-semibold text-sky-600">
-                  Ventas
-                </span>
-              </div>
-
-              <div className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2">
-                <div>
-                  <p className="font-medium text-slate-800">OT de Corte</p>
-                  <p className="text-[11px] text-slate-500">
-                    Generación automática de órdenes de trabajo.
-                  </p>
-                </div>
-                <span className="text-[11px] font-semibold text-emerald-700">
-                  Producción
-                </span>
-              </div>
-
-              <div className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2">
-                <div>
-                  <p className="font-medium text-slate-800">Inventarios</p>
-                  <p className="text-[11px] text-slate-500">
-                    Movimientos controlados por Kardex central.
-                  </p>
-                </div>
-                <span className="text-[11px] font-semibold text-amber-600">
-                  Almacenes
-                </span>
-              </div>
+            <div className="space-y-3 text-xs">
+              <ResumenItem
+                titulo="Pedidos"
+                descripcion="Creación de pedidos comerciales y seguimiento."
+                etiqueta="Ventas"
+                color="text-sky-600 bg-sky-50"
+              />
+              <ResumenItem
+                titulo="OT de Corte"
+                descripcion="Generación automática de órdenes de trabajo."
+                etiqueta="Producción"
+                color="text-violet-600 bg-violet-50"
+              />
+              <ResumenItem
+                titulo="Inventarios"
+                descripcion="Movimientos controlados por Kardex central."
+                etiqueta="Almacenes"
+                color="text-amber-600 bg-amber-50"
+              />
             </div>
 
             <p className="mt-4 text-[11px] leading-relaxed text-slate-500">
-              Todo conectado con la información que ya manejan en tus hojas de
+              Todo conectado con la información que ya manejan en sus hojas de
               cálculo, pero con una interfaz mucho más cómoda para el equipo.
             </p>
-          </aside>
+          </div>
         </section>
 
-        {/* AQUÍ puedes pegar tus secciones de módulos, flujo de información, etc. */}
-        {/* <section id="modulos">...</section> */}
+        {/* Módulos */}
+        <section id="modulos" className="mt-16 space-y-6">
+          <div>
+            <h2 className="text-sm font-semibold text-slate-900">
+              Módulos del sistema
+            </h2>
+            <p className="text-xs text-slate-500">
+              Cada área tiene su propio espacio, pero todos comparten la misma
+              información de fondo.
+            </p>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <ModuloCard
+              sigla="VT"
+              titulo="Ventas"
+              descripcion="Registro de pedidos, condiciones comerciales y estado de cada solicitud."
+              estado="En producción"
+            />
+            <ModuloCard
+              sigla="LG"
+              titulo="Logística"
+              descripcion="Planificación de despachos y preparación de pedidos para transporte."
+              estado="En construcción"
+            />
+            <ModuloCard
+              sigla="PR"
+              titulo="Producción"
+              descripcion="Órdenes de corte y extrusión conectadas al Kardex central."
+              estado="En producción"
+            />
+            <ModuloCard
+              sigla="AL"
+              titulo="Almacenes"
+              descripcion="Inventarios de MP, producto en proceso y producto terminado."
+              estado="En construcción"
+            />
+          </div>
+        </section>
+
+        {/* Flujo de información */}
+        <section className="mt-16 space-y-6">
+          <div>
+            <h2 className="text-sm font-semibold text-slate-900">
+              Cómo fluye la información
+            </h2>
+            <p className="text-xs text-slate-500">
+              La misma OT se alimenta desde Ventas y termina en Almacenes, sin
+              volver a digitar la información.
+            </p>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-4">
+            <PasoCard
+              numero="01"
+              titulo="Ventas"
+              descripcion="Se crea el pedido comercial con toda la información del cliente."
+            />
+            <PasoCard
+              numero="02"
+              titulo="Logística"
+              descripcion="Se planean despachos y se preparan los pedidos para transporte."
+            />
+            <PasoCard
+              numero="03"
+              titulo="Producción"
+              descripcion="Se generan las órdenes de corte y extrusión conectadas a Kardex."
+            />
+            <PasoCard
+              numero="04"
+              titulo="Almacenes"
+              descripcion="Se recibe, controla inventario y se alimentan los análisis para el resto del sistema."
+            />
+          </div>
+        </section>
       </main>
     </div>
   );
 }
 
+/* =========================
+   Componentes pequeños
+   ========================= */
+
+function ResumenItem({
+  titulo,
+  descripcion,
+  etiqueta,
+  color,
+}: {
+  titulo: string;
+  descripcion: string;
+  etiqueta: string;
+  color: string;
+}) {
+  return (
+    <div className="flex items-start justify-between gap-4 rounded-xl border border-slate-100 bg-slate-50/60 px-3 py-2.5">
+      <div>
+        <p className="text-xs font-semibold text-slate-800">{titulo}</p>
+        <p className="text-[11px] text-slate-500">{descripcion}</p>
+      </div>
+      <span
+        className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${color}`}
+      >
+        {etiqueta}
+      </span>
+    </div>
+  );
+}
+
+function ModuloCard({
+  sigla,
+  titulo,
+  descripcion,
+  estado,
+}: {
+  sigla: string;
+  titulo: string;
+  descripcion: string;
+  estado: string;
+}) {
+  const esProduccion = estado === "En producción";
+
+  return (
+    <div className="flex flex-col gap-2 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-900 text-xs font-semibold text-white">
+            {sigla}
+          </div>
+          <div>
+            <p className="text-xs font-semibold text-slate-900">{titulo}</p>
+            <p className="text-[11px] text-slate-500">{descripcion}</p>
+          </div>
+        </div>
+        <span
+          className={
+            "rounded-full px-2 py-0.5 text-[10px] font-medium " +
+            (esProduccion
+              ? "bg-emerald-50 text-emerald-700"
+              : "bg-amber-50 text-amber-700")
+          }
+        >
+          {estado}
+        </span>
+      </div>
+
+      <Link
+        href={
+          titulo === "Ventas"
+            ? "/ventas"
+            : titulo === "Producción"
+            ? "/produccion"
+            : titulo === "Logística"
+            ? "/logistica"
+            : "/almacen"
+        }
+        className="mt-1 text-[11px] font-medium text-emerald-700 hover:text-emerald-800"
+      >
+        Ir al módulo →
+      </Link>
+    </div>
+  );
+}
+
+function PasoCard({
+  numero,
+  titulo,
+  descripcion,
+}: {
+  numero: string;
+  titulo: string;
+  descripcion: string;
+}) {
+  return (
+    <div className="flex flex-col gap-2 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="flex items-center justify-between">
+        <span className="text-[11px] font-medium text-slate-400">
+          PASO {numero}
+        </span>
+      </div>
+      <div>
+        <p className="text-xs font-semibold text-slate-900">{titulo}</p>
+        <p className="mt-1 text-[11px] text-slate-500">{descripcion}</p>
+      </div>
+    </div>
+  );
+}
