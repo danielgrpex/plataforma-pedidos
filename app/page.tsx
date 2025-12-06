@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { HomeButtons } from "@/components/home/HomeButtons";
 
 export default function HomePage() {
   return (
@@ -36,8 +35,7 @@ export default function HomePage() {
             </div>
 
             {/* 🔥 Nuevo componente inteligente */}
-            <HomeButtons />
-
+            
             {/* Chips */}
             <div className="flex flex-wrap gap-2 text-[11px] text-slate-500">
               <span className="rounded-full bg-white px-3 py-1 shadow-sm ring-1 ring-slate-100">
