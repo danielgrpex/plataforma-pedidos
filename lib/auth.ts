@@ -2,18 +2,15 @@
 import { getServerSession, type NextAuthOptions } from "next-auth";
 import Auth0Provider from "next-auth/providers/auth0";
 
-// Si ya tienes tipos para el rol en `next-auth.d.ts`, esto encaja perfecto.
 type UserRole = "comercial" | "produccion" | "admin" | null;
 
 const getRoleFromEmail = (email: string): UserRole => {
   const map: Record<string, Exclude<UserRole, null>> = {
     "daniel.alfonso@implastgr.com": "admin",
-    // aquí puedes añadir correos con roles específicos si quieres
   };
 
   if (map[email]) return map[email];
 
-  // Regla general para cualquier correo de la empresa
   if (email.endsWith("@implastgr.com")) return "comercial";
 
   return null;
@@ -44,7 +41,7 @@ export const authOptions: NextAuthOptions = {
     async session({ session, token }) {
       if (session.user) {
         session.user.email = token.email as string;
-        // @ts-ignore – el tipo extendido de user está en next-auth.d.ts
+        // @ts-ignore
         session.user.role = token.role;
       }
       return session;
@@ -55,5 +52,4 @@ export const authOptions: NextAuthOptions = {
   },
 };
 
-// Función para obtener la sesión en el server (layouts, páginas, etc.)
 export const getAuthSession = () => getServerSession(authOptions);
