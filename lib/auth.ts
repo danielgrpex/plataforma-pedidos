@@ -7,14 +7,25 @@ type UserRole = "comercial" | "produccion" | "admin" | null;
 const getRoleFromEmail = (email: string): UserRole => {
   const map: Record<string, Exclude<UserRole, null>> = {
     "daniel.alfonso@implastgr.com": "admin",
+    // aquí puedes agregar otros correos con rol fijo si quieres
+    // "otro@implastgr.com": "produccion",
   };
 
-  if (map[email]) return map[email];
+  const normalized = email.toLowerCase();
 
-  if (email.endsWith("@implastgr.com")) return "comercial";
+  if (map[normalized]) return map[normalized];
+
+  if (normalized.endsWith("@implastgr.com")) return "comercial";
 
   return null;
 };
+
+// 👉 Lista de correos extra permitidos, fuera del dominio de la empresa
+const extraAllowedEmails = [
+  "dalfonsoleon1@GMAIL.COM", // <- cambia esto por tu correo real
+  // puedes agregar más:
+  // "otro.correo@gmail.com",
+];
 
 export const authOptions: NextAuthOptions = {
   providers: [
@@ -27,21 +38,33 @@ export const authOptions: NextAuthOptions = {
   callbacks: {
     async signIn({ user }) {
       if (!user.email) return false;
-      if (!user.email.endsWith("@implastgr.com")) return false;
+
+      const email = user.email.toLowerCase();
+
+      const isCompany = email.endsWith("@implastgr.com");
+      const isExtraAllowed = extraAllowedEmails.map(e => e.toLowerCase()).includes(email);
+
+      // Solo dejamos entrar si es correo de la empresa o está en la lista blanca
+      if (!isCompany && !isExtraAllowed) {
+        return false;
+      }
+
       return true;
     },
+
     async jwt({ token, account, profile }) {
       if (account && profile?.email) {
-        const email = profile.email as string;
+        const email = (profile.email as string).toLowerCase();
         token.email = email;
         token.role = getRoleFromEmail(email);
       }
       return token;
     },
+
     async session({ session, token }) {
       if (session.user) {
         session.user.email = token.email as string;
-        // @ts-ignore
+        // @ts-ignore (role está extendido en next-auth.d.ts)
         session.user.role = token.role;
       }
       return session;
@@ -52,4 +75,5 @@ export const authOptions: NextAuthOptions = {
   },
 };
 
+// Para usar en el server (layouts, páginas protegidas, etc.)
 export const getAuthSession = () => getServerSession(authOptions);
