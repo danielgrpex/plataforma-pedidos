@@ -6,7 +6,7 @@ type UserRole = "comercial" | "produccion" | "admin" | null;
 
 const getRoleFromEmail = (email: string): UserRole => {
   const map: Record<string, Exclude<UserRole, null>> = {
-    "daniel.alfonso@implastgr.com": "admin",
+    "daniel.alfonso@inplastgr.com": "admin",
     // aquí puedes agregar otros correos con rol fijo si quieres
     // "otro@implastgr.com": "produccion",
   };
@@ -15,7 +15,7 @@ const getRoleFromEmail = (email: string): UserRole => {
 
   if (map[normalized]) return map[normalized];
 
-  if (normalized.endsWith("@implastgr.com")) return "comercial";
+  if (normalized.endsWith("@inplastgr.com")) return "comercial";
 
   return null;
 };
@@ -41,7 +41,7 @@ export const authOptions: NextAuthOptions = {
 
       const email = user.email.toLowerCase();
 
-      const isCompany = email.endsWith("@implastgr.com");
+      const isCompany = email.endsWith("@inplastgr.com");
       const isExtraAllowed = extraAllowedEmails.map(e => e.toLowerCase()).includes(email);
 
       // Solo dejamos entrar si es correo de la empresa o está en la lista blanca
