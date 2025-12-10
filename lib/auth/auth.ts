@@ -1,6 +1,7 @@
 // lib/auth.ts
 import { getServerSession, type NextAuthOptions } from "next-auth";
 import Auth0Provider from "next-auth/providers/auth0";
+import { env } from "@/lib/config/env"; // 👈 NUEVO IMPORT
 
 type UserRole = "comercial" | "produccion" | "admin" | null;
 
@@ -30,9 +31,9 @@ const extraAllowedEmails = [
 export const authOptions: NextAuthOptions = {
   providers: [
     Auth0Provider({
-      clientId: process.env.AUTH0_CLIENT_ID!,
-      clientSecret: process.env.AUTH0_CLIENT_SECRET!,
-      issuer: process.env.AUTH0_ISSUER!,
+      clientId: env.AUTH0_CLIENT_ID,
+      clientSecret: env.AUTH0_CLIENT_SECRET,
+      issuer: env.AUTH0_ISSUER,
     }),
   ],
   callbacks: {
