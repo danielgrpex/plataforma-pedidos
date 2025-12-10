@@ -32,8 +32,11 @@ export async function getSheetsClient() {
 }
 
 export async function getInfoSheetRange(range: string) {
-  const spreadsheetId = process.env.SHEET_INFO_ID;
+  const spreadsheetId =
+    process.env.SHEET_INFO_ID || process.env.GOOGLE_SHEETS_PEDIDOS_ID || "";
+
   if (!spreadsheetId) {
+    console.error("[GoogleSheets] SHEET_INFO_ID no está definido en runtime");
     throw new Error("Falta SHEET_INFO_ID en .env.local");
   }
 
@@ -45,6 +48,7 @@ export async function getInfoSheetRange(range: string) {
 
   return res.data.values ?? [];
 }
+
 
 export async function getBasePrincipalRange(range: string) {
   const spreadsheetId = process.env.SHEET_BASE_PRINCIPAL_ID;
