@@ -1,26 +1,21 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getAuthSession } from "@/lib/auth";
-import { guardarPedidoNode, PedidoPayload } from "@/lib/pedidosService";
+// app/api/comercial/pedidos/route.ts
+import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { guardarPedidoNode } from "@/lib/pedidosService";
+
+export const runtime = "nodejs";
 
 export async function POST(req: NextRequest) {
   try {
-    const session = await getAuthSession();
-    if (!session?.user) {
-      return new NextResponse("No autorizado", { status: 401 });
-    }
+    const body = await req.json();
 
-    const body = (await req.json()) as Omit<PedidoPayload, "createdByEmail">;
-
-    const result = await guardarPedidoNode({
-      ...body,
-      createdByEmail: session.user.email || "desconocido@implastgr.com",
-    });
+    const result = await guardarPedidoNode(body);
 
     return NextResponse.json(result);
-  } catch (error: any) {
-    console.error("Error en /api/comercial/pedidos", error);
-    return new NextResponse(
-      error?.message || "Error al guardar pedido",
+  } catch (error) {
+    console.error("Error en /api/comercial/pedidos:", error);
+    return NextResponse.json(
+      { success: false, message: "Error al procesar el pedido" },
       { status: 500 }
     );
   }
