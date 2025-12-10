@@ -1,7 +1,7 @@
 // app/api/comercial/pedidos/route.ts
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { guardarPedidoNode } from "@/lib/pedidosService";
+import { guardarPedidoNode } from "@/lib/comercial/pedidosService";
 
 export const runtime = "nodejs";
 

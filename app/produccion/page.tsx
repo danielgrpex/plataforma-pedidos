@@ -1,6 +1,6 @@
 // app/produccion/page.tsx
 import { redirect } from "next/navigation";
-import { getAuthSession } from "@/lib/auth";
+import { getAuthSession } from "@/lib/auth/auth";
 
 export default async function ProduccionPage() {
   const session = await getAuthSession();

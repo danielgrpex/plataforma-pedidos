@@ -1,6 +1,6 @@
 // app/api/comercial/catalogos/route.ts
 import { NextResponse } from "next/server";
-import { getInfoSheetRange } from "@/lib/googleSheets";
+import { getInfoSheetRange } from "@/lib/google/googleSheets";
 
 export const runtime = "nodejs";
 

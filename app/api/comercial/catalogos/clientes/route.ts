@@ -1,6 +1,6 @@
 // app/api/comercial/catalogos/clientes/route.ts
 import { NextResponse } from "next/server";
-import { getInfoSheetRange } from "@/lib/googleSheets";
+import { getInfoSheetRange } from "@/lib/google/googleSheets";
 
 export const runtime = "nodejs"; // nos aseguramos de no usar edge
 
