@@ -33,7 +33,9 @@ export async function getSheetsClient() {
 
 export async function getInfoSheetRange(range: string) {
   const spreadsheetId =
-    process.env.SHEET_INFO_ID || process.env.GOOGLE_SHEETS_PEDIDOS_ID || "";
+    process.env.SHEET_INFO_ID ||
+    process.env.GOOGLE_SHEETS_PEDIDOS_ID ||
+    "1fPUjHKyDxTSPpTYIXyUHSAO1KyM2-4C-GE6kTsIc0WY"; // Fallback seguro
 
   if (!spreadsheetId) {
     console.error("[GoogleSheets] SHEET_INFO_ID no está definido en runtime");
