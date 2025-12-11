@@ -19,7 +19,6 @@ async function createSheetsClient() {
       });
 
       const authClient = await auth.getClient();
-      // 👇 Cast a any para que TypeScript no moleste
       return google.sheets({ version: "v4", auth: authClient as any });
     } catch (err) {
       console.warn(
@@ -40,13 +39,16 @@ export async function getSheetsClient() {
   return sheetsClient;
 }
 
-/**
- * Lee rangos de la hoja "Información"
- */
-export async function getInfoSheetRange(range: string) {
-  const spreadsheetId = env.SHEET_INFO_ID;
+/* ------------------------------------------------------------------ */
+/*  Helpers genéricos                                                  */
+/* ------------------------------------------------------------------ */
 
+/**
+ * Lee un rango de cualquier hoja de cálculo.
+ */
+export async function readSheetRange(spreadsheetId: string, range: string) {
   const sheets = await getSheetsClient();
+
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId,
     range,
@@ -56,16 +58,55 @@ export async function getInfoSheetRange(range: string) {
 }
 
 /**
- * Lee rangos de la hoja "Base Principal"
+ * Agrega filas al final de un rango (append).
  */
-export async function getBasePrincipalRange(range: string) {
-  const spreadsheetId = env.SHEET_BASE_PRINCIPAL_ID;
-
+export async function appendSheetRows(
+  spreadsheetId: string,
+  range: string,
+  values: any[][]
+) {
   const sheets = await getSheetsClient();
-  const res = await sheets.spreadsheets.values.get({
+
+  const res = await sheets.spreadsheets.values.append({
     spreadsheetId,
     range,
+    valueInputOption: "RAW",
+    insertDataOption: "INSERT_ROWS",
+    requestBody: {
+      values,
+    },
   });
 
-  return res.data.values ?? [];
+  return res.data;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Helpers específicos de tu proyecto                                */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Lee rangos de la hoja "Información" (catálogos).
+ * Compatibilidad con código existente.
+ */
+export async function getInfoSheetRange(range: string) {
+  return readSheetRange(env.SHEET_INFO_ID, range);
+}
+
+/**
+ * Lee rangos de la hoja "Base Principal".
+ * Compatibilidad con código existente.
+ */
+export async function getBasePrincipalRange(range: string) {
+  return readSheetRange(env.SHEET_BASE_PRINCIPAL_ID, range);
+}
+
+/**
+ * Agrega filas a la "Base Principal" (donde se guardan los pedidos).
+ * Esto lo usaremos para guardar pedidos completos.
+ */
+export async function appendBasePrincipalRows(
+  range: string,
+  values: any[][]
+) {
+  return appendSheetRows(env.SHEET_BASE_PRINCIPAL_ID, range, values);
 }
