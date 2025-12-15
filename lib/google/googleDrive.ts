@@ -1,40 +1,72 @@
 // lib/google/googleDrive.ts
+import path from "path";
 import { google } from "googleapis";
 import { env } from "@/lib/config/env";
-
+import { Readable } from "stream";
 const SCOPES = ["https://www.googleapis.com/auth/drive"];
 
 let driveClient: ReturnType<typeof google.drive> | null = null;
 
-async function getDriveClient() {
-  if (driveClient) return driveClient;
+async function createDriveClient() {
+  // ✅ En local intentamos usar service-account.json
+  if (process.env.NODE_ENV !== "production") {
+    try {
+      const keyFile = path.join(process.cwd(), "service-account.json");
+      const auth = new google.auth.GoogleAuth({
+        keyFile,
+        scopes: SCOPES,
+      });
+      const authClient = (await auth.getClient()) as any;
 
-  const auth = new google.auth.JWT({
+      return google.drive({
+        version: "v3",
+        auth: authClient,
+      });
+    } catch (err) {
+      console.warn(
+        "[GoogleDrive] No se encontró service-account.json, usando credenciales de env.ts",
+        err
+      );
+    }
+  }
+
+  // ✅ En Vercel (o si falla el JSON en local) usamos vars de entorno
+  const jwtClient = new google.auth.JWT({
     email: env.GOOGLE_CLIENT_EMAIL,
     key: env.GOOGLE_PRIVATE_KEY,
     scopes: SCOPES,
   });
 
-  driveClient = google.drive({
+  return google.drive({
     version: "v3",
-    auth,
+    auth: jwtClient,
   });
+}
 
+export async function getDriveClient() {
+  if (!driveClient) {
+    driveClient = await createDriveClient();
+  }
   return driveClient;
 }
 
-/**
- * Crea carpeta si no existe y devuelve su ID
- */
+function escapeQueryString(s: string) {
+  return s.replace(/'/g, "\\'");
+}
+
+export type DriveFolderRef = {
+  id: string;
+  webViewLink: string;
+};
+
 export async function createFolder(
   name: string,
   parentId?: string
-): Promise<{ id: string; webViewLink: string }> {
+): Promise<DriveFolderRef> {
   const drive = await getDriveClient();
 
-  // Buscar si ya existe
   const qParts = [
-    `name='${name.replace(/'/g, "\\'")}'`,
+    `name='${escapeQueryString(name)}'`,
     "mimeType='application/vnd.google-apps.folder'",
     "trashed=false",
   ];
@@ -43,13 +75,15 @@ export async function createFolder(
   const search = await drive.files.list({
     q: qParts.join(" and "),
     fields: "files(id, webViewLink)",
+    supportsAllDrives: true,
+    includeItemsFromAllDrives: true,
   });
 
-  if (search.data.files && search.data.files.length > 0) {
-    return search.data.files[0] as any;
+  const existing = search.data.files?.[0];
+  if (existing?.id && existing.webViewLink) {
+    return { id: existing.id, webViewLink: existing.webViewLink };
   }
 
-  // Crear carpeta
   const res = await drive.files.create({
     requestBody: {
       name,
@@ -57,25 +91,33 @@ export async function createFolder(
       parents: parentId ? [parentId] : undefined,
     },
     fields: "id, webViewLink",
+    supportsAllDrives: true,
   });
 
-  return res.data as any;
+  const id = res.data.id ?? "";
+  const webViewLink = res.data.webViewLink ?? "";
+
+  if (!id) throw new Error("Drive: no se pudo crear/obtener el ID de la carpeta.");
+  if (!webViewLink)
+    throw new Error("Drive: no se pudo obtener el webViewLink de la carpeta.");
+
+  return { id, webViewLink };
 }
 
-/**
- * Sube PDF a una carpeta
- */
+export type DriveFileRef = {
+  id?: string;
+  webViewLink?: string;
+};
+
 export async function uploadPdfToFolder(
   folderId: string,
   fileName: string,
-  base64Data: string
-) {
+  dataUrl: string
+): Promise<{ id?: string; webViewLink?: string }> {
   const drive = await getDriveClient();
 
-  const buffer = Buffer.from(
-    base64Data.replace(/^data:application\/pdf;base64,/, ""),
-    "base64"
-  );
+  const base64 = dataUrl.replace(/^data:application\/pdf;base64,/, "");
+  const buffer = Buffer.from(base64, "base64");
 
   const res = await drive.files.create({
     requestBody: {
@@ -85,10 +127,14 @@ export async function uploadPdfToFolder(
     },
     media: {
       mimeType: "application/pdf",
-      body: buffer,
+      body: Readable.from(buffer), // ✅ stream
     },
     fields: "id, webViewLink",
+    supportsAllDrives: true,
   });
 
-  return res.data;
+  return {
+    id: res.data.id ?? undefined,
+    webViewLink: res.data.webViewLink ?? undefined,
+  };
 }

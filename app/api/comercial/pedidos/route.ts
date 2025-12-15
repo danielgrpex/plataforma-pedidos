@@ -8,8 +8,11 @@ export const runtime = "nodejs";
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-
     const result = await guardarPedidoNode(body);
+
+    if (!result.success) {
+      return NextResponse.json(result, { status: 400 }); // ✅ importante
+    }
 
     return NextResponse.json(result);
   } catch (error) {

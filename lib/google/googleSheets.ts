@@ -90,15 +90,12 @@ export async function getBasePrincipalRange(range: string) {
 export async function appendBasePrincipalRows(rows: string[][]) {
   const sheets = await getSheetsClient();
 
-  // 37 columnas = A..AK
-  // OJO: asegúrate que el nombre de la pestaña sea EXACTAMENTE "pedidos"
   await sheets.spreadsheets.values.append({
     spreadsheetId: env.SHEET_BASE_PRINCIPAL_ID,
-    range: "Pedidos!A:AK",
+    range: "Pedidos!A:AK", // ✅ 37 columnas (A..AK) y pestaña "Pedidos"
     valueInputOption: "USER_ENTERED",
     insertDataOption: "INSERT_ROWS",
-    requestBody: {
-      values: rows,
-    },
+    requestBody: { values: rows },
   });
 }
+
