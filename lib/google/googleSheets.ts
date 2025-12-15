@@ -85,15 +85,18 @@ export async function getBasePrincipalRange(range: string) {
 }
 
 /**
- * Agrega filas al final de la hoja "Base Principal"
+ * Agrega filas al final de la hoja "Base Principal" (tab: pedidos)
  */
 export async function appendBasePrincipalRows(rows: string[][]) {
   const sheets = await getSheetsClient();
 
+  // 37 columnas = A..AK
+  // OJO: asegúrate que el nombre de la pestaña sea EXACTAMENTE "pedidos"
   await sheets.spreadsheets.values.append({
     spreadsheetId: env.SHEET_BASE_PRINCIPAL_ID,
-    range: "Base Principal!A:Z", // ajustamos luego si hace falta
+    range: "Pedidos!A:AK",
     valueInputOption: "USER_ENTERED",
+    insertDataOption: "INSERT_ROWS",
     requestBody: {
       values: rows,
     },
