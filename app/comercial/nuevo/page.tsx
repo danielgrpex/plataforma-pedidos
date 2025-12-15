@@ -18,7 +18,7 @@ type ItemForm = {
   color: string;
   ancho: string;
   largo: string;
-  cantidad: string;
+  cantidad: string; // entero como string para input controlado
   acabados: string[];
   precioUnitario: string;
 };
@@ -46,7 +46,6 @@ export default function NuevoPedidoPage() {
   const [fechaReq, setFechaReq] = useState("");
   const [asesor, setAsesor] = useState("");
   const [obs, setObs] = useState("");
-  const [esAdicional, setEsAdicional] = useState(false);
 
   const [items, setItems] = useState<ItemForm[]>([
     {
@@ -91,7 +90,9 @@ export default function NuevoPedidoPage() {
 
   // === Helpers ===
   const updateItem = (id: string, patch: Partial<ItemForm>) => {
-    setItems((prev) => prev.map((it) => (it.id === id ? { ...it, ...patch } : it)));
+    setItems((prev) =>
+      prev.map((it) => (it.id === id ? { ...it, ...patch } : it))
+    );
   };
 
   const toggleAcabado = (id: string, acabado: string) => {
@@ -126,7 +127,9 @@ export default function NuevoPedidoPage() {
   };
 
   const removeItem = (id: string) => {
-    setItems((prev) => (prev.length <= 1 ? prev : prev.filter((it) => it.id !== id)));
+    setItems((prev) =>
+      prev.length <= 1 ? prev : prev.filter((it) => it.id !== id)
+    );
   };
 
   // === Validaciones rápidas frontend (el backend igual valida) ===
@@ -135,7 +138,8 @@ export default function NuevoPedidoPage() {
     if (!asesor.trim()) return 'El campo "Asesor comercial" es obligatorio.';
     if (!direccion.trim())
       return 'El campo "Dirección de despacho" es obligatorio.';
-    if (!oc.trim()) return 'El campo "N° Orden de Compra / Cotización" es obligatorio.';
+    if (!oc.trim())
+      return 'El campo "N° Orden de Compra / Cotización" es obligatorio.';
     if (!fechaReq.trim())
       return 'El campo "Fecha requerida de entrega" es obligatorio.';
     if (!ocFile) return "Debes adjuntar el PDF de la OC/cotización.";
@@ -147,14 +151,19 @@ export default function NuevoPedidoPage() {
     for (let i = 0; i < items.length; i++) {
       const it = items[i];
       const n = i + 1;
-      if (!it.referencia.trim())
-        return `Referencia obligatoria en producto ${n}`;
+
+      if (!it.referencia.trim()) return `Referencia obligatoria en producto ${n}`;
       if (!it.color.trim()) return `Color obligatorio en producto ${n}`;
       if (!it.ancho.trim()) return `Ancho obligatorio en producto ${n}`;
-      if (!(Number(it.largo) > 0))
-        return `Largo (m) debe ser > 0 en producto ${n}`;
-      if (!(Number(it.cantidad) > 0))
-        return `Cantidad (und) debe ser > 0 en producto ${n}`;
+
+      if (!(Number(it.largo) > 0)) return `Largo (m) debe ser > 0 en producto ${n}`;
+
+      // Cantidad: entero > 0
+      const qty = Number(it.cantidad);
+      if (!(qty > 0)) return `Cantidad (und) debe ser > 0 en producto ${n}`;
+      if (!Number.isInteger(qty))
+        return `Cantidad (und) debe ser un número entero en producto ${n}`;
+
       if (!(Number(it.precioUnitario) > 0))
         return `Precio unitario debe ser > 0 en producto ${n}`;
     }
@@ -211,14 +220,13 @@ export default function NuevoPedidoPage() {
           asesor: asesor.trim(),
           obs: obs.trim(),
           fechaSolicitud: new Date().toISOString(),
-          esAdicional,
         },
         items: items.map((it) => ({
           referencia: it.referencia.trim(),
           color: it.color.trim(),
           ancho: it.ancho.trim(),
           largo: it.largo.trim(),
-          cantidad: it.cantidad.trim(),
+          cantidad: it.cantidad.trim(), // entero como string
           acabados: it.acabados,
           precioUnitario: it.precioUnitario.trim(),
         })),
@@ -243,7 +251,6 @@ export default function NuevoPedidoPage() {
       setFechaReq("");
       setAsesor("");
       setObs("");
-      setEsAdicional(false);
       setOcFile(null);
       setItems([
         {
@@ -259,8 +266,7 @@ export default function NuevoPedidoPage() {
       ]);
 
       setMsg("✅ Pedido guardado correctamente.");
-      // Opcional: volver al listado después de unos segundos
-      // setTimeout(() => router.push("/comercial"), 1500);
+      // Opcional: setTimeout(() => router.push("/comercial"), 1500);
     } catch (e: any) {
       console.error(e);
       setErr(e?.message || "Error al guardar pedido.");
@@ -357,27 +363,7 @@ export default function NuevoPedidoPage() {
               </select>
             </div>
 
-            <div className="md:col-span-2 flex items-start gap-2">
-              <input
-                id="esAdicional"
-                type="checkbox"
-                className="mt-1"
-                checked={esAdicional}
-                onChange={(e) => setEsAdicional(e.target.checked)}
-              />
-              <div>
-                <label
-                  htmlFor="esAdicional"
-                  className="text-sm font-medium cursor-pointer"
-                >
-                  Adicional de esta misma OC (mismo cliente)
-                </label>
-                <p className="text-xs text-slate-500">
-                  Si marcas esto, se permitirá registrar más productos con el mismo Nº
-                  de OC y se reutilizará la carpeta existente.
-                </p>
-              </div>
-            </div>
+            {/* ✅ Se eliminó el checkbox "Adicional de esta misma OC" */}
 
             <div className="md:col-span-2">
               <label className="block text-sm font-medium mb-1">
@@ -460,9 +446,7 @@ export default function NuevoPedidoPage() {
                   </div>
 
                   <div>
-                    <label className="block text-xs font-medium mb-1">
-                      Color
-                    </label>
+                    <label className="block text-xs font-medium mb-1">Color</label>
                     <select
                       className="w-full rounded-xl border border-slate-300 px-3 py-2 text-xs"
                       value={it.color}
@@ -506,9 +490,7 @@ export default function NuevoPedidoPage() {
                       step="0.001"
                       className="w-full rounded-xl border border-slate-300 px-3 py-2 text-xs"
                       value={it.largo}
-                      onChange={(e) =>
-                        updateItem(it.id, { largo: e.target.value })
-                      }
+                      onChange={(e) => updateItem(it.id, { largo: e.target.value })}
                     />
                   </div>
 
@@ -518,12 +500,18 @@ export default function NuevoPedidoPage() {
                     </label>
                     <input
                       type="number"
-                      step="1"
+                      inputMode="numeric"
+                      min={1}
+                      step={1}
                       className="w-full rounded-xl border border-slate-300 px-3 py-2 text-xs"
                       value={it.cantidad}
-                      onChange={(e) =>
-                        updateItem(it.id, { cantidad: e.target.value })
-                      }
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        // ✅ solo enteros (incluye vacío mientras escribe)
+                        if (/^\d*$/.test(value)) {
+                          updateItem(it.id, { cantidad: value });
+                        }
+                      }}
                     />
                   </div>
 
@@ -531,15 +519,24 @@ export default function NuevoPedidoPage() {
                     <label className="block text-xs font-medium mb-1">
                       Precio unitario
                     </label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      className="w-full rounded-xl border border-slate-300 px-3 py-2 text-xs"
-                      value={it.precioUnitario}
-                      onChange={(e) =>
-                        updateItem(it.id, { precioUnitario: e.target.value })
-                      }
-                    />
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-slate-500">
+                        $ COP
+                      </span>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min={0}
+                        className="w-full rounded-xl border border-slate-300 px-3 py-2 pl-14 text-xs"
+                        value={it.precioUnitario}
+                        onChange={(e) =>
+                          updateItem(it.id, { precioUnitario: e.target.value })
+                        }
+                      />
+                    </div>
+                    <p className="mt-1 text-[11px] text-slate-500">
+                      Valor en pesos colombianos (COP)
+                    </p>
                   </div>
 
                   <div className="md:col-span-2">
