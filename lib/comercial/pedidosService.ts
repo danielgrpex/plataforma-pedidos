@@ -1,5 +1,8 @@
 // lib/comercial/pedidosService.ts
+// lib/comercial/pedidosService.ts
 import { appendBasePrincipalRows } from "@/lib/google/googleSheets";
+import { createFolder, uploadPdfToFolder } from "@/lib/google/googleDrive";
+import { env } from "@/lib/config/env";
 
 /* ============================
    TIPOS
@@ -33,7 +36,12 @@ export type PedidoItem = {
 export type GuardarPedidoPayloadNuevo = {
   cabecera: PedidoCabecera;
   items: PedidoItem[];
-  files?: any;
+  files?: {
+    ocPdf?: {
+      name: string;
+      dataUrl: string;
+    };
+  };
 };
 
 export type GuardarPedidoPayload =
@@ -81,50 +89,12 @@ function formatNumber(n: number, decimals = 3) {
    CONSTRUCCIÓN DE FILAS
 ============================ */
 
-/**
- * Columnas (37):
- * 1  Consecutivo
- * 2  Fecha de Solicitud
- * 3  Asesor Comercial
- * 4  Cliente
- * 5  Dirección y ciudad de despacho
- * 6  Orden de Compra
- * 7  Producto
- * 8  Referencia
- * 9  Color
- * 10 Ancho
- * 11 Largo
- * 12 Cantidad (und)
- * 13 Cantidad (m)
- * 14 Acabados
- * 15 Precio Unitario
- * 16 Fecha Requerida Cliente
- * 17 Observaciones Comerciales
- * 18 Clasificación Sugerida
- * 19 Clasificación Planeación
- * 20 Observaciones Planeación
- * 21 Revisado Planeación
- * 22 Fecha Revisión Planeación
- * 23 Estado Planeación
- * 24 Estado
- * 25 Fecha Estimada Entrega Almacén
- * 26 Fecha Real Entrega Almacén
- * 27 Fecha Estimada Despacho
- * 28 Fecha Real Despacho
- * 29 Transporte
- * 30 Fecha Estimada Entrega Cliente
- * 31 Guia
- * 32 Factura
- * 33 Remision
- * 34 Fecha Entrega Real Cliente
- * 35 Observaciones de Despacho
- * 36 drive_folder_link
- * 37 created_by
- */
-
-function buildRowsFromNuevo(payload: GuardarPedidoPayloadNuevo): string[][] {
-  const cab = payload.cabecera ?? ({} as PedidoCabecera);
-  const items = payload.items ?? [];
+function buildRowsFromNuevo(
+  payload: GuardarPedidoPayloadNuevo,
+  driveFolderLink: string
+): string[][] {
+  const cab = payload.cabecera;
+  const items = payload.items;
 
   const fechaSolicitud = toStr(cab.fechaSolicitud || new Date().toISOString());
   const asesor = toStr(cab.asesor);
@@ -134,17 +104,6 @@ function buildRowsFromNuevo(payload: GuardarPedidoPayloadNuevo): string[][] {
   const fechaRequerida = toStr(cab.fechaRequerida);
   const obs = toStr(cab.obs);
   const created_by = toStr(cab.created_by);
-
-  if (!cliente) throw new Error("Cliente es obligatorio.");
-  if (!asesor) throw new Error("Asesor comercial es obligatorio.");
-  if (!direccion) throw new Error("Dirección de despacho es obligatoria.");
-  if (!oc) throw new Error("Orden de Compra es obligatoria.");
-  if (!fechaRequerida)
-    throw new Error("Fecha requerida del cliente es obligatoria.");
-
-  if (!Array.isArray(items) || items.length === 0) {
-    throw new Error("Debes registrar al menos un producto.");
-  }
 
   return items.map((it, idx) => {
     const index = idx + 1;
@@ -160,22 +119,12 @@ function buildRowsFromNuevo(payload: GuardarPedidoPayloadNuevo): string[][] {
       ? it.acabados.map(toStr).filter(Boolean)
       : [];
 
-    if (!referencia) throw new Error(`Referencia obligatoria (producto ${index})`);
-    if (!color) throw new Error(`Color obligatorio (producto ${index})`);
-    if (!ancho) throw new Error(`Ancho obligatorio (producto ${index})`);
-
-    const largo = assertPositiveNumber(
-      largoStr,
-      `Largo (m) producto ${index}`
-    );
+    const largo = assertPositiveNumber(largoStr, `Largo (m) producto ${index}`);
     const cantidadUnd = assertPositiveInteger(
       cantidadStr,
       `Cantidad (und) producto ${index}`
     );
-    assertPositiveNumber(
-      precioStr,
-      `Precio unitario producto ${index}`
-    );
+    assertPositiveNumber(precioStr, `Precio unitario producto ${index}`);
 
     const cantidadM = largo * cantidadUnd;
 
@@ -189,42 +138,42 @@ function buildRowsFromNuevo(payload: GuardarPedidoPayloadNuevo): string[][] {
 
     const row: string[] = [
       "", // 1 Consecutivo
-      fechaSolicitud, // 2 Fecha de Solicitud
-      asesor, // 3 Asesor Comercial
+      fechaSolicitud, // 2 Fecha Solicitud
+      asesor, // 3 Asesor
       cliente, // 4 Cliente
-      direccion, // 5 Dirección despacho
-      oc, // 6 Orden de Compra
+      direccion, // 5 Dirección
+      oc, // 6 OC
       producto, // 7 Producto
       referencia, // 8 Referencia
       color, // 9 Color
       ancho, // 10 Ancho
       largoStr, // 11 Largo
-      cantidadStr, // 12 Cantidad (und)
-      formatNumber(cantidadM), // 13 Cantidad (m)
+      cantidadStr, // 12 Cantidad und
+      formatNumber(cantidadM), // 13 Cantidad m
       acabadosArr.join(", "), // 14 Acabados
-      precioStr, // 15 Precio Unitario
-      fechaRequerida, // 16 Fecha Requerida Cliente
-      obs, // 17 Observaciones Comerciales
-      "", // 18 Clasificación Sugerida
-      "", // 19 Clasificación Planeación
-      "", // 20 Observaciones Planeación
-      "", // 21 Revisado Planeación
-      "", // 22 Fecha Revisión Planeación
-      "", // 23 Estado Planeación
+      precioStr, // 15 Precio unitario
+      fechaRequerida, // 16 Fecha requerida
+      obs, // 17 Observaciones comerciales
+      "", // 18 Clasificación sugerida
+      "", // 19 Clasificación planeación
+      "", // 20 Observaciones planeación
+      "", // 21 Revisado planeación
+      "", // 22 Fecha revisión planeación
+      "", // 23 Estado planeación
       "En verificación", // 24 Estado
-      "", // 25 Fecha Estimada Entrega Almacén
-      "", // 26 Fecha Real Entrega Almacén
-      "", // 27 Fecha Estimada Despacho
-      "", // 28 Fecha Real Despacho
+      "", // 25 Fecha est. almacén
+      "", // 26 Fecha real almacén
+      "", // 27 Fecha est. despacho
+      "", // 28 Fecha real despacho
       "", // 29 Transporte
-      "", // 30 Fecha Estimada Entrega Cliente
-      "", // 31 Guia
+      "", // 30 Fecha est. entrega cliente
+      "", // 31 Guía
       "", // 32 Factura
-      "", // 33 Remision
-      "", // 34 Fecha Entrega Real Cliente
-      "", // 35 Observaciones de Despacho
-      "", // 36 drive_folder_link
-      created_by, // 37 created_by
+      "", // 33 Remisión
+      "", // 34 Fecha entrega real cliente
+      "", // 35 Obs despacho
+      driveFolderLink, // 36 Drive link
+      created_by, // 37 Created by
     ];
 
     if (row.length !== 37) {
@@ -245,33 +194,30 @@ export async function guardarPedidoNode(
   data: GuardarPedidoPayload
 ): Promise<GuardarPedidoResult> {
   try {
-    // Payload legacy
     if (isLegacy(data)) {
-      if (!data.rows || data.rows.length === 0) {
-        return {
-          success: false,
-          message: "No se recibieron filas para guardar.",
-        };
-      }
-
       await appendBasePrincipalRows(data.rows);
-
-      return {
-        success: true,
-        message: "Pedido guardado correctamente.",
-      };
+      return { success: true, message: "Pedido guardado correctamente." };
     }
 
-    // Payload nuevo
-    const rows = buildRowsFromNuevo(data as GuardarPedidoPayloadNuevo);
+    const payload = data as GuardarPedidoPayloadNuevo;
+    const { cabecera, files } = payload;
+
+    const rootId = env.GOOGLE_DRIVE_ROOT_FOLDER_ID;
+    const pedidosFolder = await createFolder("PEDIDOS", rootId);
+    const clienteFolder = await createFolder(cabecera.cliente, pedidosFolder.id);
+    const ocFolder = await createFolder(cabecera.oc, clienteFolder.id);
+
+    if (files?.ocPdf?.dataUrl) {
+      const fileName = `${cabecera.cliente}_${cabecera.oc}.pdf`;
+      await uploadPdfToFolder(ocFolder.id, fileName, files.ocPdf.dataUrl);
+    }
+
+    const rows = buildRowsFromNuevo(payload, ocFolder.webViewLink);
     await appendBasePrincipalRows(rows);
 
-    return {
-      success: true,
-      message: "Pedido guardado correctamente.",
-    };
+    return { success: true, message: "Pedido guardado correctamente." };
   } catch (error) {
-    console.error("[guardarPedidoNode] Error:", error);
+    console.error("[guardarPedidoNode]", error);
     return {
       success: false,
       message:
