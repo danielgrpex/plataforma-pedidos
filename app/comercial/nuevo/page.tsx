@@ -170,38 +170,29 @@ export default function NuevoPedidoPage() {
     return "";
   };
 
-  // ✅ Upload PDF directo a Supabase (URL firmada + PUT)
+  // ✅ Upload PDF al backend (FormData) y devuelve pdfPath
   async function uploadPdfAndGetPath(
     cliente: string,
     oc: string,
     file: File
   ): Promise<string> {
-    // 1) pedir URL firmada (ruta interna)
-    const res = await fetch("/api/comercial/pedidos/upload-url", {
+    const fd = new FormData();
+    fd.append("cliente", cliente);
+    fd.append("oc", oc);
+    fd.append("file", file);
+
+    const res = await fetch("/api/comercial/pedidos/upload-pdf", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ cliente, oc }),
+      body: fd,
     });
 
-    const json = await res.json();
-    if (!json?.success) {
-      throw new Error(json?.message || "Error solicitando URL de subida");
+    const json = await res.json().catch(() => null);
+
+    if (!res.ok || !json?.success) {
+      throw new Error(json?.message || "Error subiendo PDF");
     }
 
-    const { signedUrl, path } = json as { signedUrl: string; path: string };
-
-    // 2) subir el PDF directamente a Supabase
-    const up = await fetch(signedUrl, {
-      method: "PUT",
-      headers: { "Content-Type": "application/pdf" },
-      body: file,
-    });
-
-    if (!up.ok) {
-      throw new Error("No se pudo subir el PDF a Supabase");
-    }
-
-    return path;
+    return json.pdfPath as string;
   }
 
   // === Submit ===
@@ -229,18 +220,18 @@ export default function NuevoPedidoPage() {
 
     try {
       setSaving(true);
-      setMsg("Subiendo PDF…");
 
-      // 1️⃣ Subir PDF a Supabase (sin base64)
+      // 1️⃣ Subir PDF y obtener path
+      setMsg("Subiendo PDF…");
       const pdfPath = await uploadPdfAndGetPath(
         cliente.trim(),
         oc.trim(),
         ocFile
       );
 
+      // 2️⃣ Guardar pedido (Sheets) con pdfPath
       setMsg("Guardando pedido…");
 
-      // 2️⃣ Guardar pedido con pdfPath
       const payload = {
         cabecera: {
           cliente: cliente.trim(),
@@ -269,9 +260,10 @@ export default function NuevoPedidoPage() {
         body: JSON.stringify(payload),
       });
 
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(text || "Error al guardar pedido");
+      const json = await res.json().catch(() => null);
+
+      if (!res.ok || !json?.success) {
+        throw new Error(json?.message || (await res.text()) || "Error al guardar pedido");
       }
 
       // Reset básico
@@ -296,7 +288,6 @@ export default function NuevoPedidoPage() {
       ]);
 
       setMsg("✅ Pedido guardado correctamente.");
-      // Opcional: setTimeout(() => router.push("/comercial"), 1500);
     } catch (e: any) {
       console.error(e);
       setErr(e?.message || "Error al guardar pedido.");
