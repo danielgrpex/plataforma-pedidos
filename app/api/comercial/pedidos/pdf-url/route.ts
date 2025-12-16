@@ -1,5 +1,5 @@
 // app/api/comercial/pedidos/pdf-url/route.ts
-
+export const runtime = "nodejs";
 import { NextResponse } from "next/server";
 import { createSignedPdfUrl } from "@/lib/supabase/storagePdf";
 

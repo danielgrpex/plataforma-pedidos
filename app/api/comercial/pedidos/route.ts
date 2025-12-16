@@ -1,9 +1,8 @@
 // app/api/comercial/pedidos/route.ts
+export const runtime = "nodejs";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { guardarPedidoNode } from "@/lib/comercial/pedidosService";
-
-export const runtime = "nodejs";
 
 export async function POST(req: NextRequest) {
   try {
