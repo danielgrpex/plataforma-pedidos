@@ -171,29 +171,30 @@ export default function NuevoPedidoPage() {
   };
 
   // ✅ Upload PDF al backend (FormData) y devuelve pdfPath
-  async function uploadPdfAndGetPath(
-    cliente: string,
-    oc: string,
-    file: File
-  ): Promise<string> {
-    const fd = new FormData();
-    fd.append("cliente", cliente);
-    fd.append("oc", oc);
-    fd.append("file", file);
+async function uploadPdfAndGetPath(
+  cliente: string,
+  oc: string,
+  file: File
+): Promise<string> {
+  const form = new FormData();
+  form.append("cliente", cliente);
+  form.append("oc", oc);
+  form.append("file", file);
 
-    const res = await fetch("/api/comercial/pedidos/upload-pdf", {
-      method: "POST",
-      body: fd,
-    });
+  const res = await fetch("/api/comercial/pedidos/upload-pdf", {
+    method: "POST",
+    body: form,
+  });
 
-    const json = await res.json().catch(() => null);
+  const json = await res.json();
 
-    if (!res.ok || !json?.success) {
-      throw new Error(json?.message || "Error subiendo PDF");
-    }
-
-    return json.pdfPath as string;
+  if (!res.ok || !json?.success) {
+    throw new Error(json?.message || "Error subiendo PDF");
   }
+
+  return json.pdfPath as string;
+}
+
 
   // === Submit ===
   const onSubmit = async (e: React.FormEvent) => {
