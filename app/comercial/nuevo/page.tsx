@@ -170,17 +170,39 @@ export default function NuevoPedidoPage() {
     return "";
   };
 
-  const fileToDataUrl = (file: File): Promise<{ name: string; dataUrl: string }> =>
-    new Promise((resolve, reject) => {
-      const fr = new FileReader();
-      fr.onload = () =>
-        resolve({
-          name: file.name,
-          dataUrl: fr.result as string,
-        });
-      fr.onerror = reject;
-      fr.readAsDataURL(file);
+  // ✅ Upload PDF directo a Supabase (URL firmada + PUT)
+  async function uploadPdfAndGetPath(
+    cliente: string,
+    oc: string,
+    file: File
+  ): Promise<string> {
+    // 1) pedir URL firmada (ruta interna)
+    const res = await fetch("/api/comercial/pedidos/upload-url", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cliente, oc }),
     });
+
+    const json = await res.json();
+    if (!json?.success) {
+      throw new Error(json?.message || "Error solicitando URL de subida");
+    }
+
+    const { signedUrl, path } = json as { signedUrl: string; path: string };
+
+    // 2) subir el PDF directamente a Supabase
+    const up = await fetch(signedUrl, {
+      method: "PUT",
+      headers: { "Content-Type": "application/pdf" },
+      body: file,
+    });
+
+    if (!up.ok) {
+      throw new Error("No se pudo subir el PDF a Supabase");
+    }
+
+    return path;
+  }
 
   // === Submit ===
   const onSubmit = async (e: React.FormEvent) => {
@@ -207,10 +229,18 @@ export default function NuevoPedidoPage() {
 
     try {
       setSaving(true);
+      setMsg("Subiendo PDF…");
+
+      // 1️⃣ Subir PDF a Supabase (sin base64)
+      const pdfPath = await uploadPdfAndGetPath(
+        cliente.trim(),
+        oc.trim(),
+        ocFile
+      );
+
       setMsg("Guardando pedido…");
 
-      const ocPdf = await fileToDataUrl(ocFile);
-
+      // 2️⃣ Guardar pedido con pdfPath
       const payload = {
         cabecera: {
           cliente: cliente.trim(),
@@ -226,11 +256,11 @@ export default function NuevoPedidoPage() {
           color: it.color.trim(),
           ancho: it.ancho.trim(),
           largo: it.largo.trim(),
-          cantidad: it.cantidad.trim(), // entero como string
+          cantidad: it.cantidad.trim(),
           acabados: it.acabados,
           precioUnitario: it.precioUnitario.trim(),
         })),
-        files: { ocPdf },
+        pdfPath, // ✅ clave
       };
 
       const res = await fetch("/api/comercial/pedidos", {
@@ -289,8 +319,7 @@ export default function NuevoPedidoPage() {
 
       <h1 className="text-2xl font-semibold mb-1">Nuevo pedido comercial</h1>
       <p className="text-sm text-slate-500 mb-6">
-        Diligencia la información base del pedido. En el siguiente paso conectaremos
-        esto con Google Sheets.
+        Diligencia la información base del pedido.
       </p>
 
       <form onSubmit={onSubmit} className="space-y-6">
@@ -362,8 +391,6 @@ export default function NuevoPedidoPage() {
                 ))}
               </select>
             </div>
-
-            {/* ✅ Se eliminó el checkbox "Adicional de esta misma OC" */}
 
             <div className="md:col-span-2">
               <label className="block text-sm font-medium mb-1">
@@ -507,7 +534,6 @@ export default function NuevoPedidoPage() {
                       value={it.cantidad}
                       onChange={(e) => {
                         const value = e.target.value;
-                        // ✅ solo enteros (incluye vacío mientras escribe)
                         if (/^\d*$/.test(value)) {
                           updateItem(it.id, { cantidad: value });
                         }
