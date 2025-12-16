@@ -176,24 +176,37 @@ async function uploadPdfAndGetPath(
   oc: string,
   file: File
 ): Promise<string> {
-  const form = new FormData();
-  form.append("cliente", cliente);
-  form.append("oc", oc);
-  form.append("file", file);
+  const formData = new FormData();
+  formData.append("cliente", cliente);
+  formData.append("oc", oc);
+  formData.append("file", file);
 
   const res = await fetch("/api/comercial/pedidos/upload-pdf", {
     method: "POST",
-    body: form, // ❌ NO headers aquí
+    body: formData, // 🚫 NO headers
   });
 
-  const json = await res.json();
-
-  if (!json?.success) {
-    throw new Error(json?.message || "Error subiendo PDF");
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || "Error subiendo PDF");
   }
 
-  return json.pdfPath as string;
+  // 👇 CLAVE: aseguramos que SÍ haya JSON
+  const text = await res.text();
+
+  if (!text) {
+    throw new Error("Respuesta vacía del servidor al subir PDF");
+  }
+
+  const json = JSON.parse(text);
+
+  if (!json.success || !json.pdfPath) {
+    throw new Error(json.message || "Respuesta inválida del servidor");
+  }
+
+  return json.pdfPath;
 }
+
 
 
 
