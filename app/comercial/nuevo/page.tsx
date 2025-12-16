@@ -183,24 +183,13 @@ async function uploadPdfAndGetPath(
 
   const res = await fetch("/api/comercial/pedidos/upload-pdf", {
     method: "POST",
-    body: form,
+    body: form, // ❌ NO headers aquí
   });
 
-  const raw = await res.text(); // 👈 clave: evita "Unexpected end of JSON input"
+  const json = await res.json();
 
-  let json: any = null;
-  try {
-    json = raw ? JSON.parse(raw) : null;
-  } catch {
-    // si no es JSON, lo dejamos como texto
-  }
-
-  if (!res.ok || !json?.success) {
-    const msg =
-      json?.message ||
-      (raw ? raw.slice(0, 300) : "") ||
-      `Error subiendo PDF (HTTP ${res.status})`;
-    throw new Error(msg);
+  if (!json?.success) {
+    throw new Error(json?.message || "Error subiendo PDF");
   }
 
   return json.pdfPath as string;
