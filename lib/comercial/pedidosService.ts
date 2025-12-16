@@ -1,5 +1,6 @@
 // lib/comercial/pedidosService.ts
 import { appendBasePrincipalRows } from "@/lib/google/googleSheets";
+import { uploadPedidoPdf } from "@/lib/supabase/storagePdf";
 
 /* ============================
    TIPOS
@@ -61,16 +62,14 @@ function toStr(v: unknown) {
 
 function assertPositiveNumber(value: string, label: string) {
   const n = Number(value);
-  if (!Number.isFinite(n) || n <= 0) {
-    throw new Error(`${label} debe ser un número mayor a 0.`);
-  }
+  if (!Number.isFinite(n) || n <= 0) throw new Error(`${label} debe ser > 0.`);
   return n;
 }
 
 function assertPositiveInteger(value: string, label: string) {
   const n = Number(value);
   if (!Number.isFinite(n) || n <= 0 || !Number.isInteger(n)) {
-    throw new Error(`${label} debe ser un número entero mayor a 0.`);
+    throw new Error(`${label} debe ser entero > 0.`);
   }
   return n;
 }
@@ -80,12 +79,16 @@ function formatNumber(n: number, decimals = 3) {
 }
 
 /* ============================
-   CONSTRUCCIÓN DE FILAS
+   FILAS (37 COLS)
+   Col 36 => PDF_PATH (Supabase)
 ============================ */
 
-function buildRowsFromNuevo(payload: GuardarPedidoPayloadNuevo): string[][] {
-  const cab = payload.cabecera;
-  const items = payload.items;
+function buildRowsFromNuevo(
+  payload: GuardarPedidoPayloadNuevo,
+  pdfPath: string
+): string[][] {
+  const cab = payload.cabecera ?? ({} as PedidoCabecera);
+  const items = payload.items ?? [];
 
   const fechaSolicitud = toStr(cab.fechaSolicitud || new Date().toISOString());
   const asesor = toStr(cab.asesor);
@@ -100,15 +103,13 @@ function buildRowsFromNuevo(payload: GuardarPedidoPayloadNuevo): string[][] {
   if (!asesor) throw new Error("Asesor comercial es obligatorio.");
   if (!direccion) throw new Error("Dirección de despacho es obligatoria.");
   if (!oc) throw new Error("Orden de Compra es obligatoria.");
-  if (!fechaRequerida) throw new Error("Fecha requerida del cliente es obligatoria.");
+  if (!fechaRequerida) throw new Error("Fecha requerida es obligatoria.");
   if (!Array.isArray(items) || items.length === 0) {
     throw new Error("Debes registrar al menos un producto.");
   }
 
-  const driveFolderLink = ""; // 👈 por ahora vacío hasta OAuth
-
   return items.map((it, idx) => {
-    const index = idx + 1;
+    const n = idx + 1;
 
     const referencia = toStr(it.referencia);
     const color = toStr(it.color);
@@ -121,16 +122,16 @@ function buildRowsFromNuevo(payload: GuardarPedidoPayloadNuevo): string[][] {
       ? it.acabados.map(toStr).filter(Boolean)
       : [];
 
-    if (!referencia) throw new Error(`Referencia obligatoria (producto ${index})`);
-    if (!color) throw new Error(`Color obligatorio (producto ${index})`);
-    if (!ancho) throw new Error(`Ancho obligatorio (producto ${index})`);
+    if (!referencia) throw new Error(`Referencia obligatoria (producto ${n}).`);
+    if (!color) throw new Error(`Color obligatorio (producto ${n}).`);
+    if (!ancho) throw new Error(`Ancho obligatorio (producto ${n}).`);
 
-    const largo = assertPositiveNumber(largoStr, `Largo (m) producto ${index}`);
+    const largo = assertPositiveNumber(largoStr, `Largo (m) producto ${n}`);
     const cantidadUnd = assertPositiveInteger(
       cantidadStr,
-      `Cantidad (und) producto ${index}`
+      `Cantidad (und) producto ${n}`
     );
-    assertPositiveNumber(precioStr, `Precio unitario producto ${index}`);
+    assertPositiveNumber(precioStr, `Precio unitario producto ${n}`);
 
     const cantidadM = largo * cantidadUnd;
 
@@ -143,32 +144,32 @@ function buildRowsFromNuevo(payload: GuardarPedidoPayloadNuevo): string[][] {
     ].join(" | ");
 
     const row: string[] = [
-      "", // 1 Consecutivo
-      fechaSolicitud, // 2 Fecha Solicitud
-      asesor, // 3 Asesor
-      cliente, // 4 Cliente
-      direccion, // 5 Dirección
-      oc, // 6 OC
-      producto, // 7 Producto
-      referencia, // 8 Referencia
-      color, // 9 Color
-      ancho, // 10 Ancho
-      largoStr, // 11 Largo
-      cantidadStr, // 12 Cantidad und
-      formatNumber(cantidadM), // 13 Cantidad m
-      acabadosArr.join(", "), // 14 Acabados
-      precioStr, // 15 Precio unitario
-      fechaRequerida, // 16 Fecha requerida
-      obs, // 17 Observaciones comerciales
+      "", // 1
+      fechaSolicitud, // 2
+      asesor, // 3
+      cliente, // 4
+      direccion, // 5
+      oc, // 6
+      producto, // 7
+      referencia, // 8
+      color, // 9
+      ancho, // 10
+      largoStr, // 11
+      cantidadStr, // 12
+      formatNumber(cantidadM), // 13
+      acabadosArr.join(", "), // 14
+      precioStr, // 15
+      fechaRequerida, // 16
+      obs, // 17
       "", "", "", "", "", "", // 18-23
-      "En verificación", // 24 Estado
+      "En verificación", // 24
       "", "", "", "", "", "", "", "", "", "", "", // 25-35
-      driveFolderLink, // 36 drive_folder_link
-      created_by, // 37 created_by
+      pdfPath, // 36 ✅
+      created_by, // 37
     ];
 
     if (row.length !== 37) {
-      throw new Error(`Error interno: la fila tiene ${row.length} columnas y deberían ser 37.`);
+      throw new Error(`Fila inválida: ${row.length} columnas (deben ser 37).`);
     }
 
     return row;
@@ -188,21 +189,31 @@ export async function guardarPedidoNode(
         return { success: false, message: "No se recibieron filas para guardar." };
       }
       await appendBasePrincipalRows(data.rows);
-      return { success: true, message: "Pedido guardado correctamente (Sheets)." };
+      return { success: true, message: "Pedido guardado correctamente." };
     }
 
     const payload = data as GuardarPedidoPayloadNuevo;
-    const rows = buildRowsFromNuevo(payload);
+    const { cabecera, files } = payload;
 
-    console.log("[guardarPedidoNode] rows:", rows.length, "cols:", rows[0]?.length);
+    let pdfPath = "";
+    if (files?.ocPdf?.dataUrl) {
+      const up = await uploadPedidoPdf({
+        cliente: cabecera.cliente,
+        oc: cabecera.oc,
+        dataUrl: files.ocPdf.dataUrl,
+      });
+      pdfPath = up.path;
+    }
+
+    const rows = buildRowsFromNuevo(payload, pdfPath);
     await appendBasePrincipalRows(rows);
 
-    return { success: true, message: "Pedido guardado correctamente (Sheets)." };
+    return { success: true, message: "Pedido guardado correctamente." };
   } catch (error) {
     console.error("[guardarPedidoNode]", error);
     return {
       success: false,
-      message: error instanceof Error ? error.message : "Error desconocido al guardar el pedido.",
+      message: error instanceof Error ? error.message : "Error desconocido",
     };
   }
 }

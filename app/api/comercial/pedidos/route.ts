@@ -11,7 +11,7 @@ export async function POST(req: NextRequest) {
     const result = await guardarPedidoNode(body);
 
     if (!result.success) {
-      return NextResponse.json(result, { status: 400 }); // ✅ importante
+      return NextResponse.json(result, { status: 400 });
     }
 
     return NextResponse.json(result);

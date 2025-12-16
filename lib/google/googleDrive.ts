@@ -1,140 +1,107 @@
 // lib/google/googleDrive.ts
-import path from "path";
 import { google } from "googleapis";
 import { env } from "@/lib/config/env";
 import { Readable } from "stream";
-const SCOPES = ["https://www.googleapis.com/auth/drive"];
 
-let driveClient: ReturnType<typeof google.drive> | null = null;
+const DRIVE_SCOPES = ["https://www.googleapis.com/auth/drive"];
 
-async function createDriveClient() {
-  // ✅ En local intentamos usar service-account.json
-  if (process.env.NODE_ENV !== "production") {
-    try {
-      const keyFile = path.join(process.cwd(), "service-account.json");
-      const auth = new google.auth.GoogleAuth({
-        keyFile,
-        scopes: SCOPES,
-      });
-      const authClient = (await auth.getClient()) as any;
+type DriveFolder = {
+  id: string;
+  webViewLink?: string;
+};
 
-      return google.drive({
-        version: "v3",
-        auth: authClient,
-      });
-    } catch (err) {
-      console.warn(
-        "[GoogleDrive] No se encontró service-account.json, usando credenciales de env.ts",
-        err
-      );
-    }
+function getDriveClient(accessToken?: string) {
+  // Si llega token -> OAuth (Drive del usuario)
+  if (accessToken) {
+    const oauth2 = new google.auth.OAuth2();
+    oauth2.setCredentials({ access_token: accessToken });
+
+    return google.drive({
+      version: "v3",
+      auth: oauth2,
+    });
   }
 
-  // ✅ En Vercel (o si falla el JSON en local) usamos vars de entorno
-  const jwtClient = new google.auth.JWT({
+  // Si NO llega token -> Service Account (para carpetas)
+  const jwt = new google.auth.JWT({
     email: env.GOOGLE_CLIENT_EMAIL,
     key: env.GOOGLE_PRIVATE_KEY,
-    scopes: SCOPES,
+    scopes: DRIVE_SCOPES,
   });
 
   return google.drive({
     version: "v3",
-    auth: jwtClient,
+    auth: jwt,
   });
 }
 
-export async function getDriveClient() {
-  if (!driveClient) {
-    driveClient = await createDriveClient();
-  }
-  return driveClient;
-}
-
-function escapeQueryString(s: string) {
-  return s.replace(/'/g, "\\'");
-}
-
-export type DriveFolderRef = {
-  id: string;
-  webViewLink: string;
-};
-
+/**
+ * Crea carpeta en Drive.
+ * - Sin accessToken: Service Account
+ * - Con accessToken: OAuth
+ */
 export async function createFolder(
   name: string,
-  parentId?: string
-): Promise<DriveFolderRef> {
-  const drive = await getDriveClient();
-
-  const qParts = [
-    `name='${escapeQueryString(name)}'`,
-    "mimeType='application/vnd.google-apps.folder'",
-    "trashed=false",
-  ];
-  if (parentId) qParts.push(`'${parentId}' in parents`);
-
-  const search = await drive.files.list({
-    q: qParts.join(" and "),
-    fields: "files(id, webViewLink)",
-    supportsAllDrives: true,
-    includeItemsFromAllDrives: true,
-  });
-
-  const existing = search.data.files?.[0];
-  if (existing?.id && existing.webViewLink) {
-    return { id: existing.id, webViewLink: existing.webViewLink };
-  }
+  parentId: string,
+  accessToken?: string
+): Promise<DriveFolder> {
+  const drive = getDriveClient(accessToken);
 
   const res = await drive.files.create({
     requestBody: {
       name,
       mimeType: "application/vnd.google-apps.folder",
-      parents: parentId ? [parentId] : undefined,
+      parents: [parentId],
     },
     fields: "id, webViewLink",
     supportsAllDrives: true,
   });
 
-  const id = res.data.id ?? "";
-  const webViewLink = res.data.webViewLink ?? "";
+  const id = res.data.id;
+  if (!id) throw new Error("No se pudo crear la carpeta (sin id).");
 
-  if (!id) throw new Error("Drive: no se pudo crear/obtener el ID de la carpeta.");
-  if (!webViewLink)
-    throw new Error("Drive: no se pudo obtener el webViewLink de la carpeta.");
-
-  return { id, webViewLink };
+  return {
+    id,
+    webViewLink: res.data.webViewLink ?? undefined,
+  };
 }
 
-export type DriveFileRef = {
-  id?: string;
-  webViewLink?: string;
-};
-
+/**
+ * Sube PDF a una carpeta.
+ * OJO: Para subir al Drive del usuario normalmente debes pasar accessToken (OAuth).
+ */
 export async function uploadPdfToFolder(
   folderId: string,
   fileName: string,
-  dataUrl: string
-): Promise<{ id?: string; webViewLink?: string }> {
-  const drive = await getDriveClient();
+  pdfDataUrl: string,
+  accessToken?: string
+) {
+  const drive = getDriveClient(accessToken);
 
-  const base64 = dataUrl.replace(/^data:application\/pdf;base64,/, "");
+  // data:image/pdf;base64,....
+  const base64 = pdfDataUrl.includes("base64,")
+    ? pdfDataUrl.split("base64,")[1]
+    : pdfDataUrl;
+
   const buffer = Buffer.from(base64, "base64");
+
+  // ✅ Esto arregla el error: part.body.pipe is not a function
+  const stream = Readable.from(buffer);
 
   const res = await drive.files.create({
     requestBody: {
       name: fileName,
       parents: [folderId],
-      mimeType: "application/pdf",
     },
     media: {
       mimeType: "application/pdf",
-      body: Readable.from(buffer), // ✅ stream
+      body: stream,
     },
     fields: "id, webViewLink",
     supportsAllDrives: true,
   });
 
-  return {
-    id: res.data.id ?? undefined,
-    webViewLink: res.data.webViewLink ?? undefined,
-  };
+  if (!res.data.id) throw new Error("No se pudo subir el PDF (sin id).");
+
+  return res.data;
 }
