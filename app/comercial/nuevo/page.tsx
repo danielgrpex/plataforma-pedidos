@@ -181,7 +181,7 @@ async function uploadPdfAndGetPath(
   formData.append("oc", oc);
   formData.append("file", file);
 
-  const res = await fetch("/api/comercial/pedidos/upload-pdf", {
+  const res = await fetch("/api/comercial/pedidos/upload-url", {
     method: "POST",
     body: formData, // 🚫 NO headers
   });
