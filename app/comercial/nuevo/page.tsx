@@ -186,14 +186,26 @@ async function uploadPdfAndGetPath(
     body: form,
   });
 
-  const json = await res.json();
+  const raw = await res.text(); // 👈 clave: evita "Unexpected end of JSON input"
+
+  let json: any = null;
+  try {
+    json = raw ? JSON.parse(raw) : null;
+  } catch {
+    // si no es JSON, lo dejamos como texto
+  }
 
   if (!res.ok || !json?.success) {
-    throw new Error(json?.message || "Error subiendo PDF");
+    const msg =
+      json?.message ||
+      (raw ? raw.slice(0, 300) : "") ||
+      `Error subiendo PDF (HTTP ${res.status})`;
+    throw new Error(msg);
   }
 
   return json.pdfPath as string;
 }
+
 
 
   // === Submit ===
