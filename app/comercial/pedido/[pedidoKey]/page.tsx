@@ -1,9 +1,13 @@
+//app/comercial/pedido/[consecutivo]/page.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 
 type PedidoDetalle = {
+  pedidoKey?: string;
+  pedidoId?: string;
+
   consecutivo: string;
   fechaSolicitud: string;
   asesor: string;
@@ -14,7 +18,8 @@ type PedidoDetalle = {
   obsComerciales: string;
   estado: string;
   pdfPath: string;
-  createdBy: string;
+  createdBy?: string;
+
   items: Array<{
     producto: string;
     referencia: string;
@@ -28,7 +33,6 @@ type PedidoDetalle = {
   }>;
 };
 
-// ✅ Formato: "12-Dic-2025"
 function formatFechaColombia(value: string) {
   if (!value) return "—";
   const d = new Date(value);
@@ -45,9 +49,9 @@ function formatFechaColombia(value: string) {
 
 export default function VerPedidoPage() {
   const router = useRouter();
-  const params = useParams<{ consecutivo: string }>();
+  const params = useParams<{ pedidoKey: string }>();
 
-  const consecutivo = decodeURIComponent(params.consecutivo || "");
+  const pedidoKey = decodeURIComponent(params.pedidoKey || "");
 
   const [pedido, setPedido] = useState<PedidoDetalle | null>(null);
   const [loading, setLoading] = useState(true);
@@ -57,12 +61,12 @@ export default function VerPedidoPage() {
     setLoading(true);
     setErr("");
     try {
-      const res = await fetch(
-        `/api/comercial/pedidos/detalle?consecutivo=${encodeURIComponent(consecutivo)}`,
-        { cache: "no-store" }
-      );
+      const url = `/api/comercial/pedidos/detalle?pedidoKey=${encodeURIComponent(pedidoKey)}`;
+      const res = await fetch(url, { cache: "no-store" });
       const json = await res.json();
+
       if (!json?.success) throw new Error(json?.message || "Error cargando pedido");
+
       setPedido(json.pedido as PedidoDetalle);
     } catch (e: any) {
       console.error(e);
@@ -74,9 +78,9 @@ export default function VerPedidoPage() {
   }
 
   useEffect(() => {
-    if (consecutivo) load();
+    if (pedidoKey) load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [consecutivo]);
+  }, [pedidoKey]);
 
   async function verPdf(pdfPath: string) {
     if (!pdfPath) return alert("Este pedido no tiene pdfPath guardado.");
@@ -109,7 +113,13 @@ export default function VerPedidoPage() {
         <div>
           <h1 className="text-2xl font-semibold">Ver pedido</h1>
           <p className="text-sm text-slate-500">
-            Consecutivo: <span className="font-medium text-slate-700">{consecutivo}</span>
+            Consecutivo:{" "}
+            <span className="font-medium text-slate-700">
+              {pedido?.consecutivo || "—"}
+            </span>
+          </p>
+          <p className="text-xs text-slate-400 break-all">
+            pedidoKey: {pedidoKey || "—"}
           </p>
         </div>
 
@@ -130,7 +140,6 @@ export default function VerPedidoPage() {
         )}
       </div>
 
-      {/* Estados */}
       <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         {loading && <p className="text-sm text-slate-500">Cargando…</p>}
 
@@ -162,15 +171,11 @@ export default function VerPedidoPage() {
                 </div>
                 <div>
                   <p className="text-xs text-slate-500">Fecha solicitud</p>
-                  <p className="text-sm font-medium">
-                    {formatFechaColombia(pedido.fechaSolicitud)}
-                  </p>
+                  <p className="text-sm font-medium">{formatFechaColombia(pedido.fechaSolicitud)}</p>
                 </div>
                 <div>
                   <p className="text-xs text-slate-500">Fecha requerida</p>
-                  <p className="text-sm font-medium">
-                    {formatFechaColombia(pedido.fechaRequerida)}
-                  </p>
+                  <p className="text-sm font-medium">{formatFechaColombia(pedido.fechaRequerida)}</p>
                 </div>
               </div>
 
@@ -197,16 +202,13 @@ export default function VerPedidoPage() {
 
               <div className="mt-3">
                 <p className="text-xs text-slate-500">pdfPath</p>
-                <p className="text-xs break-all text-slate-600">
-                  {pedido.pdfPath || "—"}
-                </p>
+                <p className="text-xs break-all text-slate-600">{pedido.pdfPath || "—"}</p>
               </div>
             </div>
           </div>
         )}
       </section>
 
-      {/* Tabla items */}
       {!loading && pedido && (
         <section className="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
           <div className="px-4 py-3 border-b border-slate-100">

@@ -1,30 +1,8 @@
+// app/api/comercial/pedidos/detalle/route.ts
 import { NextResponse } from "next/server";
 import { getBasePrincipalRange } from "@/lib/google/googleSheets";
 
 export const runtime = "nodejs";
-
-// Columnas en "Pedidos!A:AK" (37 cols)
-// 1 Consecutivo (A)
-// 2 Fecha Solicitud (B)
-// 3 Asesor (C)
-// 4 Cliente (D)
-// 5 Dirección (E)
-// 6 OC (F)
-// 7 Producto (G)
-// 8 Referencia (H)
-// 9 Color (I)
-// 10 Ancho (J)
-// 11 Largo (K)
-// 12 Cantidad und (L)
-// 13 Cantidad m (M)
-// 14 Acabados (N)
-// 15 Precio Unitario (O)
-// 16 Fecha Requerida (P)
-// 17 Obs Comerciales (Q)
-// ...
-// 24 Estado (X)
-// 36 pdfPath (AJ)
-// 37 created_by (AK)
 
 function toStr(v: unknown) {
   return String(v ?? "").trim();
@@ -33,17 +11,19 @@ function toStr(v: unknown) {
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
-    const consecutivo = toStr(searchParams.get("consecutivo"));
 
-    if (!consecutivo) {
+    // NUEVO: pedidoKey (AL)
+    const pedidoKey = toStr(searchParams.get("pedidoKey"));
+
+    if (!pedidoKey) {
       return NextResponse.json(
-        { success: false, message: "consecutivo es requerido" },
+        { success: false, message: "pedidoKey es requerido" },
         { status: 400 }
       );
     }
 
-    // Traemos todo y filtramos (simple y robusto). Más adelante se optimiza si quieres.
-    const values = await getBasePrincipalRange("Pedidos!A:AK");
+    // Ahora leemos hasta AM para incluir pedidoKey (AL) y pedidoId (AM)
+    const values = await getBasePrincipalRange("Pedidos!A:AM");
 
     if (!values || values.length === 0) {
       return NextResponse.json(
@@ -52,12 +32,12 @@ export async function GET(req: Request) {
       );
     }
 
-    // Si la primera fila es header, igual no pasa nada por el filtro.
-    const rows = values.filter((r) => toStr(r?.[0]) === consecutivo);
+    // pedidoKey está en AL => índice 37 (0-based)
+    const rows = values.filter((r) => toStr(r?.[37]) === pedidoKey);
 
     if (!rows.length) {
       return NextResponse.json(
-        { success: false, message: `No se encontró el pedido ${consecutivo}` },
+        { success: false, message: `No se encontró el pedido con pedidoKey: ${pedidoKey}` },
         { status: 404 }
       );
     }
@@ -65,6 +45,9 @@ export async function GET(req: Request) {
     const first = rows[0];
 
     const pedido = {
+      pedidoKey: toStr(first[37]),
+      pedidoId: toStr(first[38]),
+
       consecutivo: toStr(first[0]),
       fechaSolicitud: toStr(first[1]),
       asesor: toStr(first[2]),
@@ -75,6 +58,8 @@ export async function GET(req: Request) {
       obsComerciales: toStr(first[16]),
       estado: toStr(first[23]),
       pdfPath: toStr(first[35]),
+      createdBy: toStr(first[36]), // AK (created_by)
+
       items: rows.map((r) => ({
         producto: toStr(r[6]),
         referencia: toStr(r[7]),

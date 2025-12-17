@@ -12,6 +12,9 @@ type PedidoListItem = {
   estado: string;
   pdfPath: string;
   createdBy: string;
+
+  // ✅ NUEVO
+  pedidoKey: string;
 };
 
 const ESTADOS = [
@@ -64,10 +67,9 @@ export default function ComercialListadoPage() {
       if (q.trim()) params.set("q", q.trim());
       if (estado.trim()) params.set("estado", estado.trim());
 
-      const res = await fetch(
-        `/api/comercial/pedidos/list?${params.toString()}`,
-        { cache: "no-store" }
-      );
+      const res = await fetch(`/api/comercial/pedidos/list?${params.toString()}`, {
+        cache: "no-store",
+      });
       const json = await res.json();
 
       if (!json?.success) throw new Error(json?.message || "Error cargando pedidos");
@@ -163,7 +165,7 @@ export default function ComercialListadoPage() {
 
         <div className="mt-3 flex gap-2">
           <button
-            onClick={() => load(1)} // ✅ al aplicar filtros vuelve a la página 1
+            onClick={() => load(1)}
             className="rounded-xl border border-slate-300 px-3 py-2 text-sm hover:bg-slate-50"
             disabled={loading}
           >
@@ -174,7 +176,7 @@ export default function ComercialListadoPage() {
             onClick={() => {
               setQ("");
               setEstado("");
-              setTimeout(() => load(1), 0); // ✅ vuelve a página 1
+              setTimeout(() => load(1), 0);
             }}
             className="rounded-xl border border-slate-300 px-3 py-2 text-sm hover:bg-slate-50"
             disabled={loading}
@@ -222,9 +224,7 @@ export default function ComercialListadoPage() {
                 items.map((p, idx) => (
                   <tr key={`${p.consecutivo}-${idx}`} className="hover:bg-slate-50">
                     <td className="px-4 py-3">{p.consecutivo || "—"}</td>
-                    <td className="px-4 py-3">
-                      {formatFechaColombia(p.fechaSolicitud)}
-                    </td>
+                    <td className="px-4 py-3">{formatFechaColombia(p.fechaSolicitud)}</td>
                     <td className="px-4 py-3">{p.cliente || "—"}</td>
                     <td className="px-4 py-3">{p.oc || "—"}</td>
                     <td className="px-4 py-3">{p.asesor || "—"}</td>
@@ -241,17 +241,22 @@ export default function ComercialListadoPage() {
                         <span className="text-slate-400">—</span>
                       )}
                     </td>
+
+                    {/* ✅ Acciones: navegar por pedidoKey */}
                     <td className="px-4 py-3">
                       <button
-  className="text-slate-700 underline underline-offset-2 hover:text-slate-900"
-  onClick={() => {
-    if (!p.consecutivo) return alert("Este pedido no tiene consecutivo.");
-    window.location.href = `/comercial/pedido/${encodeURIComponent(p.consecutivo)}`;
-  }}
->
-  Ver pedido
-</button>
-
+                        className="text-slate-700 underline underline-offset-2 hover:text-slate-900"
+                        onClick={() => {
+                          if (!p.pedidoKey) {
+                            return alert(
+                              "Este registro no tiene pedidoKey (columna AL). Revisa que el listado esté trayendo AL."
+                            );
+                          }
+                          window.location.href = `/comercial/pedido/${encodeURIComponent(p.pedidoKey)}`;
+                        }}
+                      >
+                        Ver pedido
+                      </button>
                     </td>
                   </tr>
                 ))}
