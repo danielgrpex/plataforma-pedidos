@@ -243,11 +243,15 @@ export default function ComercialListadoPage() {
                     </td>
                     <td className="px-4 py-3">
                       <button
-                        className="text-slate-700 underline underline-offset-2 hover:text-slate-900"
-                        onClick={() => alert("Siguiente paso: pantalla Ver Pedido 😉")}
-                      >
-                        Ver pedido
-                      </button>
+  className="text-slate-700 underline underline-offset-2 hover:text-slate-900"
+  onClick={() => {
+    if (!p.consecutivo) return alert("Este pedido no tiene consecutivo.");
+    window.location.href = `/comercial/pedido/${encodeURIComponent(p.consecutivo)}`;
+  }}
+>
+  Ver pedido
+</button>
+
                     </td>
                   </tr>
                 ))}
