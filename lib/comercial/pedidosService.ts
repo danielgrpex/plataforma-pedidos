@@ -184,7 +184,7 @@ function buildRowsFromNuevo(
       "", // 32 Factura
       "", // 33 Remisión
       "", // 34 Fecha entrega real cliente
-      pdfPath, // 35 Obs despacho
+      "", // 35 Obs despacho
       pdfPath, // 36 ✅ PDF_PATH (Supabase)
       created_by, // 37 created_by
     ];
