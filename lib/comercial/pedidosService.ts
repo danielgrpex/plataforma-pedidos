@@ -78,7 +78,7 @@ function assertPositiveInteger(value: string, label: string) {
   return n;
 }
 
-function formatNumber(n: number, decimals = 3) {
+function formatNumber(n: number, decimals = 1) {
   return n.toFixed(decimals).replace(/\.?0+$/, "");
 }
 

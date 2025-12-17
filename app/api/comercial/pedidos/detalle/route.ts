@@ -12,9 +12,7 @@ export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
 
-    // NUEVO: pedidoKey (AL)
     const pedidoKey = toStr(searchParams.get("pedidoKey"));
-
     if (!pedidoKey) {
       return NextResponse.json(
         { success: false, message: "pedidoKey es requerido" },
@@ -22,9 +20,7 @@ export async function GET(req: Request) {
       );
     }
 
-    // Ahora leemos hasta AM para incluir pedidoKey (AL) y pedidoId (AM)
     const values = await getBasePrincipalRange("Pedidos!A:AM");
-
     if (!values || values.length === 0) {
       return NextResponse.json(
         { success: false, message: "No hay datos en la hoja Pedidos" },
@@ -32,9 +28,7 @@ export async function GET(req: Request) {
       );
     }
 
-    // pedidoKey está en AL => índice 37 (0-based)
-    const rows = values.filter((r) => toStr(r?.[37]) === pedidoKey);
-
+    const rows = values.filter((r) => toStr(r?.[37]) === pedidoKey); // AL
     if (!rows.length) {
       return NextResponse.json(
         { success: false, message: `No se encontró el pedido con pedidoKey: ${pedidoKey}` },
@@ -58,17 +52,29 @@ export async function GET(req: Request) {
       obsComerciales: toStr(first[16]),
       estado: toStr(first[23]),
       pdfPath: toStr(first[35]),
-      createdBy: toStr(first[36]), // AK (created_by)
+      createdBy: toStr(first[36]),
 
       items: rows.map((r) => ({
+        // Base
         producto: toStr(r[6]),
-        referencia: toStr(r[7]),
-        color: toStr(r[8]),
-        ancho: toStr(r[9]),
-        largo: toStr(r[10]),
         cantidadUnd: toStr(r[11]),
         cantidadM: toStr(r[12]),
-        acabados: toStr(r[13]),
+        estadoItem: toStr(r[23]),
+
+        // Fechas
+        fechaEstimadaEntregaAlmacen: toStr(r[24]),
+        fechaRealEntregaAlmacen: toStr(r[25]),
+        fechaEstimadaDespacho: toStr(r[26]),
+        fechaRealDespacho: toStr(r[27]),
+        fechaEntregaRealCliente: toStr(r[33]),
+
+        // Despacho
+        transporte: toStr(r[28]),
+        guia: toStr(r[30]),
+        factura: toStr(r[31]),
+        remision: toStr(r[32]),
+
+        // Valores
         precioUnitario: toStr(r[14]),
       })),
     };
@@ -85,3 +91,5 @@ export async function GET(req: Request) {
     );
   }
 }
+
+
