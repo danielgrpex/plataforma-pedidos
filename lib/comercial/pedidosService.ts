@@ -1,6 +1,5 @@
 // lib/comercial/pedidosService.ts
 import { appendBasePrincipalRows } from "@/lib/google/googleSheets";
-import { uploadPedidoPdf } from "@/lib/supabase/storagePdf";
 
 /* ============================
    TIPOS
@@ -34,9 +33,12 @@ export type PedidoItem = {
 export type GuardarPedidoPayloadNuevo = {
   cabecera: PedidoCabecera;
   items: PedidoItem[];
-  files?: {
-    ocPdf?: { name: string; dataUrl: string };
-  };
+
+  /**
+   * ✅ Ahora recibimos el path del PDF ya subido a Supabase Storage
+   * Ej: "Cliente/OC/OC_2025-12-16T....pdf"
+   */
+  pdfPath?: string;
 };
 
 export type GuardarPedidoPayload =
@@ -62,14 +64,16 @@ function toStr(v: unknown) {
 
 function assertPositiveNumber(value: string, label: string) {
   const n = Number(value);
-  if (!Number.isFinite(n) || n <= 0) throw new Error(`${label} debe ser > 0.`);
+  if (!Number.isFinite(n) || n <= 0) {
+    throw new Error(`${label} debe ser un número mayor a 0.`);
+  }
   return n;
 }
 
 function assertPositiveInteger(value: string, label: string) {
   const n = Number(value);
   if (!Number.isFinite(n) || n <= 0 || !Number.isInteger(n)) {
-    throw new Error(`${label} debe ser entero > 0.`);
+    throw new Error(`${label} debe ser un número entero mayor a 0.`);
   }
   return n;
 }
@@ -80,7 +84,7 @@ function formatNumber(n: number, decimals = 3) {
 
 /* ============================
    FILAS (37 COLS)
-   Col 36 => PDF_PATH (Supabase)
+   Col 36 => pdfPath (Supabase Storage)
 ============================ */
 
 function buildRowsFromNuevo(
@@ -104,6 +108,7 @@ function buildRowsFromNuevo(
   if (!direccion) throw new Error("Dirección de despacho es obligatoria.");
   if (!oc) throw new Error("Orden de Compra es obligatoria.");
   if (!fechaRequerida) throw new Error("Fecha requerida es obligatoria.");
+
   if (!Array.isArray(items) || items.length === 0) {
     throw new Error("Debes registrar al menos un producto.");
   }
@@ -135,6 +140,7 @@ function buildRowsFromNuevo(
 
     const cantidadM = largo * cantidadUnd;
 
+    // Producto = Referencia + Color + Ancho + Largo + Acabados
     const producto = [
       referencia,
       color,
@@ -144,32 +150,49 @@ function buildRowsFromNuevo(
     ].join(" | ");
 
     const row: string[] = [
-      "", // 1
-      fechaSolicitud, // 2
-      asesor, // 3
-      cliente, // 4
-      direccion, // 5
-      oc, // 6
-      producto, // 7
-      referencia, // 8
-      color, // 9
-      ancho, // 10
-      largoStr, // 11
-      cantidadStr, // 12
-      formatNumber(cantidadM), // 13
-      acabadosArr.join(", "), // 14
-      precioStr, // 15
-      fechaRequerida, // 16
-      obs, // 17
-      "", "", "", "", "", "", // 18-23
-      "En verificación", // 24
-      "", "", "", "", "", "", "", "", "", "", "", // 25-35
-      pdfPath, // 36 ✅
-      created_by, // 37
+      "", // 1 Consecutivo
+      fechaSolicitud, // 2 Fecha Solicitud
+      asesor, // 3 Asesor
+      cliente, // 4 Cliente
+      direccion, // 5 Dirección
+      oc, // 6 OC
+      producto, // 7 Producto
+      referencia, // 8 Referencia
+      color, // 9 Color
+      ancho, // 10 Ancho
+      largoStr, // 11 Largo
+      cantidadStr, // 12 Cantidad und
+      formatNumber(cantidadM), // 13 Cantidad m
+      acabadosArr.join(", "), // 14 Acabados
+      precioStr, // 15 Precio unitario
+      fechaRequerida, // 16 Fecha requerida
+      obs, // 17 Observaciones comerciales
+      "", // 18 Clasificación sugerida
+      "", // 19 Clasificación planeación
+      "", // 20 Observaciones planeación
+      "", // 21 Revisado planeación
+      "", // 22 Fecha revisión planeación
+      "", // 23 Estado planeación
+      "En verificación", // 24 Estado
+      "", // 25 Fecha est. almacén
+      "", // 26 Fecha real almacén
+      "", // 27 Fecha est. despacho
+      "", // 28 Fecha real despacho
+      "", // 29 Transporte
+      "", // 30 Fecha est. entrega cliente
+      "", // 31 Guía
+      "", // 32 Factura
+      "", // 33 Remisión
+      "", // 34 Fecha entrega real cliente
+      pdfPath, // 35 Obs despacho
+      pdfPath, // 36 ✅ PDF_PATH (Supabase)
+      created_by, // 37 created_by
     ];
 
     if (row.length !== 37) {
-      throw new Error(`Fila inválida: ${row.length} columnas (deben ser 37).`);
+      throw new Error(
+        `Fila inválida: tiene ${row.length} columnas (deben ser 37).`
+      );
     }
 
     return row;
@@ -184,6 +207,7 @@ export async function guardarPedidoNode(
   data: GuardarPedidoPayload
 ): Promise<GuardarPedidoResult> {
   try {
+    // ✅ Legacy (compat)
     if (isLegacy(data)) {
       if (!data.rows?.length) {
         return { success: false, message: "No se recibieron filas para guardar." };
@@ -192,18 +216,11 @@ export async function guardarPedidoNode(
       return { success: true, message: "Pedido guardado correctamente." };
     }
 
+    // ✅ Nuevo
     const payload = data as GuardarPedidoPayloadNuevo;
-    const { cabecera, files } = payload;
 
-    let pdfPath = "";
-    if (files?.ocPdf?.dataUrl) {
-      const up = await uploadPedidoPdf({
-        cliente: cabecera.cliente,
-        oc: cabecera.oc,
-        dataUrl: files.ocPdf.dataUrl,
-      });
-      pdfPath = up.path;
-    }
+    // pdfPath viene desde el frontend (ya subido a Supabase con signed upload)
+    const pdfPath = toStr(payload.pdfPath);
 
     const rows = buildRowsFromNuevo(payload, pdfPath);
     await appendBasePrincipalRows(rows);
@@ -217,3 +234,4 @@ export async function guardarPedidoNode(
     };
   }
 }
+
