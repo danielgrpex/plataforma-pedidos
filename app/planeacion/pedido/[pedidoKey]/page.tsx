@@ -5,6 +5,16 @@ import { useParams, useRouter } from "next/navigation";
 
 type DestinoItem = "Almacén" | "Corte" | "Producción";
 
+type OpcionInv = {
+  inventarioId: string;
+  productoKey: string;
+  descripcion: string;
+  almacen: string;
+  disponibleUnd: number;
+  largo: number;
+  acabados: string;
+};
+
 type Pedido = {
   pedidoKey: string;
   consecutivo: string;
@@ -13,10 +23,8 @@ type Pedido = {
   direccion: string;
   fechaRequerida: string;
 
-  pdfPath?: string;
-
-  clasificacionPlaneacion?: string;
-  observacionesPlaneacion?: string;
+  clasificacionPlaneacion: string;
+  observacionesPlaneacion: string;
 
   items: Array<{
     rowIndex1Based?: number;
@@ -26,6 +34,12 @@ type Pedido = {
     cantidadM: string;
     inventarioDisponibleUnd: number;
     inventarioDisponibleM: number;
+
+    opcionesInventario?: {
+      "Almacén": OpcionInv[];
+      "Corte": OpcionInv[];
+      "Producción": OpcionInv[];
+    };
   }>;
 };
 
@@ -36,20 +50,6 @@ function toNumber(v?: string) {
   return Number.isFinite(n) ? n : 0;
 }
 
-function formatFechaColombia(value?: string) {
-  if (!value) return "—";
-  const d = new Date(value);
-  if (isNaN(d.getTime())) return value;
-
-  const day = d.getDate().toString().padStart(2, "0");
-  const month = d
-    .toLocaleDateString("es-CO", { month: "short" })
-    .replace(".", "")
-    .replace(/^\w/, (c) => c.toUpperCase());
-  const year = d.getFullYear();
-  return `${day}-${month}-${year}`;
-}
-
 export default function PlaneacionPedidoPage() {
   const router = useRouter();
   const params = useParams<{ pedidoKey: string }>();
@@ -57,49 +57,53 @@ export default function PlaneacionPedidoPage() {
 
   const [pedido, setPedido] = useState<Pedido | null>(null);
   const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState("");
 
   const [obs, setObs] = useState("");
 
-  // ✅ state por UID (no por rowIndex)
+  // state por UID
   const [reservas, setReservas] = useState<Record<string, number>>({});
   const [destinos, setDestinos] = useState<Record<string, DestinoItem>>({});
 
+  // ✅ seleccionado por fila: inventarioId elegido (opción)
+  const [opcionSel, setOpcionSel] = useState<Record<string, string>>({});
+
   async function load() {
     setLoading(true);
-    setErr("");
 
-    try {
-      const res = await fetch(
-        `/api/planeacion/pedido?pedidoKey=${encodeURIComponent(pedidoKey)}`,
-        { cache: "no-store" }
-      );
-      const json = await res.json();
-      if (!json?.success) throw new Error(json?.message || "No se pudo cargar el pedido");
-
-      const ped = json.pedido as Pedido;
-      setPedido(ped);
-      setObs((ped?.observacionesPlaneacion || "") as string);
-
-      // defaults por UID
-      const initialReservas: Record<string, number> = {};
-      const initialDestinos: Record<string, DestinoItem> = {};
-
-      (ped?.items || []).forEach((it, idx) => {
-        const uid = `${it.rowIndex1Based || "X"}-${it.productoKey || "PK"}-${idx}`;
-        initialReservas[uid] = 0;
-        initialDestinos[uid] = "Almacén";
-      });
-
-      setReservas(initialReservas);
-      setDestinos(initialDestinos);
-    } catch (e: any) {
-      console.error(e);
-      setErr(e?.message || "Error cargando pedido");
-      setPedido(null);
-    } finally {
+    const res = await fetch(
+      `/api/planeacion/pedido?pedidoKey=${encodeURIComponent(pedidoKey)}`,
+      { cache: "no-store" }
+    );
+    const json = await res.json();
+    if (!json?.success) {
       setLoading(false);
+      alert(json?.message || "Error cargando pedido");
+      return;
     }
+
+    const ped = json.pedido as Pedido;
+    setPedido(ped);
+    setObs((ped?.observacionesPlaneacion || "") as string);
+
+    const initialReservas: Record<string, number> = {};
+    const initialDestinos: Record<string, DestinoItem> = {};
+    const initialOpcion: Record<string, string> = {};
+
+    (ped?.items || []).forEach((it, idx) => {
+      const uid = `${it.rowIndex1Based || "X"}-${it.productoKey || "PK"}-${idx}`;
+      initialReservas[uid] = 0;
+      initialDestinos[uid] = "Almacén";
+
+      // default: si existe opción exacta en Almacén, escoger la primera
+      const opts = it.opcionesInventario?.["Almacén"] || [];
+      initialOpcion[uid] = opts[0]?.inventarioId || "";
+    });
+
+    setReservas(initialReservas);
+    setDestinos(initialDestinos);
+    setOpcionSel(initialOpcion);
+
+    setLoading(false);
   }
 
   useEffect(() => {
@@ -107,41 +111,43 @@ export default function PlaneacionPedidoPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pedidoKey]);
 
-  async function verPdf(pdfPath?: string) {
-    if (!pdfPath) return alert("Este pedido no tiene pdfPath guardado.");
-
-    const res = await fetch("/api/comercial/pedidos/pdf-url", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ pdfPath }),
-    });
-
-    const json = await res.json();
-    if (!json?.success) return alert(json?.message || "No se pudo abrir el PDF");
-
-    window.open(json.url, "_blank", "noopener,noreferrer");
-  }
-
   const computed = useMemo(() => {
     const items = pedido?.items || [];
     return items.map((it, idx) => {
       const uid = `${it.rowIndex1Based || "X"}-${it.productoKey || "PK"}-${idx}`;
 
       const solicitada = toNumber(it.cantidadUnd);
-      const disponible = it.inventarioDisponibleUnd || 0;
+      const disponibleExacto = it.inventarioDisponibleUnd || 0;
 
-      const reservar = Math.max(0, Math.min(reservas[uid] || 0, disponible, solicitada));
+      const reservar = Math.max(0, Math.min(reservas[uid] || 0, disponibleExacto, solicitada));
       const producir = Math.max(0, solicitada - reservar);
 
       const destino = destinos[uid] || "Almacén";
+      const opciones = it.opcionesInventario?.[destino] || [];
 
-      return { ...it, uid, solicitada, disponible, reservar, producir, destino };
+      // si cambia destino y no hay inventarioId seleccionado, escoger primero
+      const selectedInvId = opcionSel[uid] || (opciones[0]?.inventarioId ?? "");
+
+      return {
+        ...it,
+        uid,
+        solicitada,
+        disponibleExacto,
+        reservar,
+        producir,
+        destino,
+        opciones,
+        selectedInvId,
+      };
     });
-  }, [pedido, reservas, destinos]);
+  }, [pedido, reservas, destinos, opcionSel]);
 
   async function guardar() {
     if (!pedido) return;
 
+    // Si estás usando el guardar actual (por fila), déjalo igual por ahora:
+    // (no estamos usando aún selectedInvId para reservar por inventarioId,
+    //  eso lo hacemos en el siguiente paso si quieres)
     const payload = {
       pedidoKey: pedido.pedidoKey,
       observacionesPlaneacion: obs || "",
@@ -151,6 +157,8 @@ export default function PlaneacionPedidoPage() {
         productoKey: x.productoKey,
         destino: x.destino,
         cantidadReservarUnd: x.reservar,
+        // opcional para el futuro:
+        // inventarioIdSeleccionado: x.selectedInvId,
       })),
     };
 
@@ -159,27 +167,12 @@ export default function PlaneacionPedidoPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
-
     const json = await res.json();
     if (!json?.success) return alert(json?.message || "Error guardando planeación");
 
     alert("Planeación guardada ✅");
     router.push("/planeacion");
   }
-
-  const totals = useMemo(() => {
-    const items = computed || [];
-    let totalSolicitado = 0;
-    let totalReservar = 0;
-    let totalProducir = 0;
-
-    for (const it of items) {
-      totalSolicitado += Number(it.solicitada || 0);
-      totalReservar += Number(it.reservar || 0);
-      totalProducir += Number(it.producir || 0);
-    }
-    return { totalSolicitado, totalReservar, totalProducir };
-  }, [computed]);
 
   return (
     <main className="mx-auto max-w-6xl px-6 py-8">
@@ -188,125 +181,45 @@ export default function PlaneacionPedidoPage() {
         type="button"
         onClick={() => router.push("/planeacion")}
       >
-        ← Volver a planeación
+        ← Volver
       </button>
 
       {loading && <p className="text-sm text-slate-500">Cargando…</p>}
 
-      {!loading && err && (
-        <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-          {err}
-        </div>
-      )}
-
       {!loading && pedido && (
         <>
-          {/* Header como Comercial */}
           <div className="flex items-start justify-between gap-4">
             <div>
               <h1 className="text-2xl font-semibold">Clasificar pedido</h1>
               <p className="text-sm text-slate-500">
-                Consecutivo:{" "}
-                <span className="font-medium text-slate-700">{pedido.consecutivo || "—"}</span>
+                {pedido.consecutivo} — {pedido.cliente} — OC {pedido.oc}
               </p>
               <p className="text-xs text-slate-400 break-all">pedidoKey: {pedido.pedidoKey}</p>
             </div>
 
-            <div className="flex items-center gap-3">
-
-              {pedido?.pdfPath ? (
-                <button
-                  onClick={() => verPdf(pedido.pdfPath)}
-                  className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700"
-                >
-                  Ver PDF
-                </button>
-              ) : (
-                <button
-                  disabled
-                  className="rounded-xl bg-slate-200 px-4 py-2 text-sm font-medium text-slate-500"
-                >
-                  Sin PDF
-                </button>
-              )}
-
-              <button
-                onClick={guardar}
-                className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
-              >
-                Guardar planeación
-              </button>
-            </div>
+            <button
+              onClick={guardar}
+              className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+            >
+              Guardar planeación
+            </button>
           </div>
 
-          {/* Card info (como Comercial) */}
-          <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="grid gap-4 md:grid-cols-3">
-              <div className="md:col-span-2 space-y-3">
-                <div className="grid gap-2 md:grid-cols-2">
-                  <div>
-                    <p className="text-xs text-slate-500">Cliente</p>
-                    <p className="text-sm font-medium">{pedido.cliente || "—"}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-slate-500">OC</p>
-                    <p className="text-sm font-medium">{pedido.oc || "—"}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-slate-500">Dirección</p>
-                    <p className="text-sm">{pedido.direccion || "—"}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-slate-500">Fecha requerida</p>
-                    <p className="text-sm font-medium">{formatFechaColombia(pedido.fechaRequerida)}</p>
-                  </div>
-                </div>
-
-                <div>
-                  <p className="text-xs text-slate-500">Observaciones planeación</p>
-                  <input
-                    value={obs}
-                    onChange={(e) => setObs(e.target.value)}
-                    className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
-                    placeholder="Notas de inventario / prioridad / aclaraciones…"
-                  />
-                </div>
-              </div>
-
-              <div className="rounded-2xl bg-slate-50 p-4 border border-slate-100">
-                <p className="text-xs text-slate-500">Resumen</p>
-                <p className="mt-1 text-3xl font-semibold">{pedido.items?.length ?? 0}</p>
-                <p className="text-sm text-slate-600">items</p>
-
-                <div className="mt-4 grid gap-2">
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-slate-600">Solicitado (und)</span>
-                    <span className="font-medium">{totals.totalSolicitado.toLocaleString("es-CO")}</span>
-                  </div>
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-slate-600">Reservar (und)</span>
-                    <span className="font-medium">{totals.totalReservar.toLocaleString("es-CO")}</span>
-                  </div>
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-slate-600">A producir (und)</span>
-                    <span className="font-semibold">{totals.totalProducir.toLocaleString("es-CO")}</span>
-                  </div>
-                </div>
-
-                {pedido?.pdfPath ? (
-                  <div className="mt-4">
-                    <p className="text-xs text-slate-500">pdfPath</p>
-                    <p className="text-xs break-all text-slate-600">{pedido.pdfPath}</p>
-                  </div>
-                ) : null}
-              </div>
-            </div>
+          <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <label className="block text-xs font-medium mb-1 text-slate-600">
+              Observaciones planeación
+            </label>
+            <input
+              value={obs}
+              onChange={(e) => setObs(e.target.value)}
+              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+              placeholder="Notas de inventario / prioridad / aclaraciones…"
+            />
           </section>
 
-          {/* Tabla estilo “pro” */}
           <section className="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
             <div className="px-4 py-3 border-b border-slate-100">
-              <h2 className="text-base font-semibold">Items + inventario + reserva</h2>
+              <h2 className="text-base font-semibold">Items + inventario + opciones</h2>
             </div>
 
             <div className="overflow-x-auto">
@@ -316,7 +229,8 @@ export default function PlaneacionPedidoPage() {
                     <th className="px-4 py-3 text-left font-medium">Producto</th>
                     <th className="px-4 py-3 text-left font-medium">Destino</th>
                     <th className="px-4 py-3 text-right font-medium">Solicitado</th>
-                    <th className="px-4 py-3 text-right font-medium">Disponible</th>
+                    <th className="px-4 py-3 text-right font-medium">Disponible (exacto)</th>
+                    <th className="px-4 py-3 text-left font-medium">Opción inventario</th>
                     <th className="px-4 py-3 text-right font-medium">Reservar</th>
                     <th className="px-4 py-3 text-right font-medium">Producir</th>
                   </tr>
@@ -333,12 +247,17 @@ export default function PlaneacionPedidoPage() {
                       <td className="px-4 py-3">
                         <select
                           value={destinos[it.uid] || "Almacén"}
-                          onChange={(e) =>
-                            setDestinos((prev) => ({
+                          onChange={(e) => {
+                            const nuevo = e.target.value as DestinoItem;
+                            setDestinos((prev) => ({ ...prev, [it.uid]: nuevo }));
+
+                            // cuando cambia destino: escoger primera opción compatible (si existe)
+                            const opciones = it.opcionesInventario?.[nuevo] || [];
+                            setOpcionSel((prev) => ({
                               ...prev,
-                              [it.uid]: e.target.value as DestinoItem,
-                            }))
-                          }
+                              [it.uid]: opciones[0]?.inventarioId || "",
+                            }));
+                          }}
                           className="rounded-xl border border-slate-300 px-3 py-2 text-sm"
                         >
                           <option value="Almacén">Almacén</option>
@@ -347,8 +266,39 @@ export default function PlaneacionPedidoPage() {
                         </select>
                       </td>
 
-                      <td className="px-4 py-3 text-right">{it.solicitada.toLocaleString("es-CO")}</td>
-                      <td className="px-4 py-3 text-right">{(it.disponible || 0).toLocaleString("es-CO")}</td>
+                      <td className="px-4 py-3 text-right font-medium">{it.solicitada}</td>
+
+                      <td className="px-4 py-3 text-right font-medium">
+                        {it.disponibleExacto?.toLocaleString("es-CO") ?? 0}
+                      </td>
+
+                      <td className="px-4 py-3">
+                        <select
+                          value={it.selectedInvId || ""}
+                          onChange={(e) =>
+                            setOpcionSel((prev) => ({ ...prev, [it.uid]: e.target.value }))
+                          }
+                          className="min-w-[520px] rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                        >
+                          {it.opciones.length === 0 ? (
+                            <option value="">Sin opciones</option>
+                          ) : (
+                            it.opciones.map((op) => (
+                              <option key={op.inventarioId} value={op.inventarioId}>
+                                {op.descripcion} — {op.almacen} — disp: {op.disponibleUnd}
+                              </option>
+                            ))
+                          )}
+                        </select>
+
+                        <div className="mt-1 text-xs text-slate-500">
+                          {it.opciones.length === 0
+                            ? "No hay inventario compatible para este destino"
+                            : it.destino === "Corte"
+                            ? "En Corte puedes usar largos mayores o iguales; acabados no importan."
+                            : "En Almacén/Producción mostramos match exacto."}
+                        </div>
+                      </td>
 
                       <td className="px-4 py-3 text-right">
                         <input
@@ -362,28 +312,21 @@ export default function PlaneacionPedidoPage() {
                               [it.uid]: Number(e.target.value || 0),
                             }))
                           }
-                          className="w-24 rounded-xl border border-slate-300 px-2 py-1 text-right"
+                          className="w-28 rounded-xl border border-slate-300 px-2 py-1 text-right"
                         />
                       </td>
 
-                      <td className="px-4 py-3 text-right font-semibold">{it.producir.toLocaleString("es-CO")}</td>
+                      <td className="px-4 py-3 text-right font-semibold">{it.producir}</td>
                     </tr>
                   ))}
-
-                  <tr className="bg-slate-50">
-                    <td className="px-4 py-3 font-semibold">Totales</td>
-                    <td className="px-4 py-3" />
-                    <td className="px-4 py-3 text-right font-semibold">{totals.totalSolicitado.toLocaleString("es-CO")}</td>
-                    <td className="px-4 py-3" />
-                    <td className="px-4 py-3 text-right font-semibold">{totals.totalReservar.toLocaleString("es-CO")}</td>
-                    <td className="px-4 py-3 text-right font-semibold">{totals.totalProducir.toLocaleString("es-CO")}</td>
-                  </tr>
                 </tbody>
               </table>
             </div>
 
             <div className="px-4 py-3 border-t border-slate-100 text-xs text-slate-500">
               Nota: “Reservar” crea un movimiento en <b>MovimientosInventario</b> tipo <b>Reserva</b> (cantidad negativa).
+              <br />
+              Las “Opciones inventario” son para que planeación decida el mejor origen (especialmente en <b>Corte</b>).
             </div>
           </section>
         </>
