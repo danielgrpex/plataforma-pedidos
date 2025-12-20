@@ -1,3 +1,4 @@
+//app/planeacion/pedido/[pedidoKey]/page.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -7,12 +8,13 @@ type DestinoItem = "Almacén" | "Corte" | "Producción";
 
 type OpcionInv = {
   inventarioId: string;
-  productoKey: string;
-  descripcion: string;
-  almacen: string;
-  disponibleUnd: number;
-  largo: number;
-  acabados: string;
+  almacen?: string;
+  productoTexto?: string; // viene del bulk
+  descripcion?: string;   // por si en algún punto lo armaste así
+  disponibleUnd?: number;
+  disponibleM?: number;
+  largo?: number;
+  acabados?: string;
 };
 
 type Pedido = {
@@ -63,9 +65,7 @@ export default function PlaneacionPedidoPage() {
   // state por UID
   const [reservas, setReservas] = useState<Record<string, number>>({});
   const [destinos, setDestinos] = useState<Record<string, DestinoItem>>({});
-
-  // ✅ seleccionado por fila: inventarioId elegido (opción)
-  const [opcionSel, setOpcionSel] = useState<Record<string, string>>({});
+  const [opcionSel, setOpcionSel] = useState<Record<string, string>>({}); // uid -> inventarioId
 
   async function load() {
     setLoading(true);
@@ -94,7 +94,7 @@ export default function PlaneacionPedidoPage() {
       initialReservas[uid] = 0;
       initialDestinos[uid] = "Almacén";
 
-      // default: si existe opción exacta en Almacén, escoger la primera
+      // default: primera opción de almacén si existe
       const opts = it.opcionesInventario?.["Almacén"] || [];
       initialOpcion[uid] = opts[0]?.inventarioId || "";
     });
@@ -113,6 +113,7 @@ export default function PlaneacionPedidoPage() {
 
   const computed = useMemo(() => {
     const items = pedido?.items || [];
+
     return items.map((it, idx) => {
       const uid = `${it.rowIndex1Based || "X"}-${it.productoKey || "PK"}-${idx}`;
 
@@ -125,7 +126,7 @@ export default function PlaneacionPedidoPage() {
       const destino = destinos[uid] || "Almacén";
       const opciones = it.opcionesInventario?.[destino] || [];
 
-      // si cambia destino y no hay inventarioId seleccionado, escoger primero
+      // siempre leemos la selección desde el state
       const selectedInvId = opcionSel[uid] || (opciones[0]?.inventarioId ?? "");
 
       return {
@@ -142,12 +143,20 @@ export default function PlaneacionPedidoPage() {
     });
   }, [pedido, reservas, destinos, opcionSel]);
 
+  function optionLabel(op: OpcionInv) {
+    const base = (op.descripcion || op.productoTexto || "").trim();
+    const disp = (op.disponibleUnd ?? 0);
+    const alm = (op.almacen || "").trim();
+    const extra = [
+      alm ? `— ${alm}` : "",
+      `— disp: ${disp}`,
+    ].filter(Boolean).join(" ");
+    return `${base || op.inventarioId}${extra}`;
+  }
+
   async function guardar() {
     if (!pedido) return;
 
-    // Si estás usando el guardar actual (por fila), déjalo igual por ahora:
-    // (no estamos usando aún selectedInvId para reservar por inventarioId,
-    //  eso lo hacemos en el siguiente paso si quieres)
     const payload = {
       pedidoKey: pedido.pedidoKey,
       observacionesPlaneacion: obs || "",
@@ -157,8 +166,9 @@ export default function PlaneacionPedidoPage() {
         productoKey: x.productoKey,
         destino: x.destino,
         cantidadReservarUnd: x.reservar,
-        // opcional para el futuro:
-        // inventarioIdSeleccionado: x.selectedInvId,
+
+        // ✅ CLAVE: ahora sí mandamos el inventarioId seleccionado
+        inventarioId: x.selectedInvId || "",
       })),
     };
 
@@ -251,7 +261,7 @@ export default function PlaneacionPedidoPage() {
                             const nuevo = e.target.value as DestinoItem;
                             setDestinos((prev) => ({ ...prev, [it.uid]: nuevo }));
 
-                            // cuando cambia destino: escoger primera opción compatible (si existe)
+                            // al cambiar destino, setear default (primera opción compatible)
                             const opciones = it.opcionesInventario?.[nuevo] || [];
                             setOpcionSel((prev) => ({
                               ...prev,
@@ -267,14 +277,13 @@ export default function PlaneacionPedidoPage() {
                       </td>
 
                       <td className="px-4 py-3 text-right font-medium">{it.solicitada}</td>
-
                       <td className="px-4 py-3 text-right font-medium">
                         {it.disponibleExacto?.toLocaleString("es-CO") ?? 0}
                       </td>
 
                       <td className="px-4 py-3">
                         <select
-                          value={it.selectedInvId || ""}
+                          value={opcionSel[it.uid] || ""}
                           onChange={(e) =>
                             setOpcionSel((prev) => ({ ...prev, [it.uid]: e.target.value }))
                           }
@@ -285,7 +294,7 @@ export default function PlaneacionPedidoPage() {
                           ) : (
                             it.opciones.map((op) => (
                               <option key={op.inventarioId} value={op.inventarioId}>
-                                {op.descripcion} — {op.almacen} — disp: {op.disponibleUnd}
+                                {optionLabel(op)}
                               </option>
                             ))
                           )}
