@@ -20,7 +20,7 @@ type Body = {
     productoKey: string;
     destino: Destino;
     cantidadReservarUnd: number;
-    inventarioId?: string | null; // ✅ NUEVO
+    inventarioId?: string | null;
   }>;
 };
 
@@ -30,26 +30,20 @@ export async function POST(req: Request) {
 
     const pedidoKey = toStr(body.pedidoKey);
     if (!pedidoKey) {
-      return NextResponse.json(
-        { success: false, message: "pedidoKey requerido" },
-        { status: 400 }
-      );
+      return NextResponse.json({ success: false, message: "pedidoKey requerido" }, { status: 400 });
     }
 
     const observacionesPlaneacion = toStr(body.observacionesPlaneacion);
     const usuario = toStr(body.usuario) || "planeacion";
     const items = Array.isArray(body.items) ? body.items : [];
     if (!items.length) {
-      return NextResponse.json(
-        { success: false, message: "items requeridos" },
-        { status: 400 }
-      );
+      return NextResponse.json({ success: false, message: "items requeridos" }, { status: 400 });
     }
 
     const sheets = await getSheetsClient();
     const fecha = new Date().toISOString();
 
-    // ✅ Validación en batch: leer AL{row} para todas las filas (1 sola llamada)
+    // ✅ Validar AL (pedidoKey) en batch
     const ranges = items
       .map((it) => Number(it.rowIndex1Based || 0))
       .filter((r) => r >= 2)
@@ -70,16 +64,9 @@ export async function POST(req: Request) {
       if (row) keyMap[row] = val;
     });
 
-    // ✅ Updates en batch (1 sola llamada)
-    // Columnas:
-    // S = Clasificación Planeación
-    // T = Observaciones Planeación
-    // U = Revisado Planeación
-    // V = Fecha Revisión Planeación
-    // W = Estado Planeación
-    // X = Estado (general) -> lo ponemos igual que W
+    // ✅ Updates Pedidos en batch: S:X
+    // S Clasificación Planeación | T Observaciones | U Revisado | V Fecha | W Estado Planeación | X Estado general
     const data: Array<{ range: string; values: any[][] }> = [];
-
     const debug: Array<{ row: number; ok: boolean; reason?: string }> = [];
 
     for (const it of items) {
@@ -109,8 +96,7 @@ export async function POST(req: Request) {
       return NextResponse.json(
         {
           success: false,
-          message:
-            "No se actualizó ninguna fila en Pedidos. Revisa rowIndex1Based y pedidoKey.",
+          message: "No se actualizó ninguna fila en Pedidos. Revisa rowIndex1Based y pedidoKey.",
           debug,
         },
         { status: 400 }
@@ -119,34 +105,32 @@ export async function POST(req: Request) {
 
     await sheets.spreadsheets.values.batchUpdate({
       spreadsheetId: env.SHEET_BASE_PRINCIPAL_ID,
-      requestBody: {
-        valueInputOption: "USER_ENTERED",
-        data,
-      },
+      requestBody: { valueInputOption: "USER_ENTERED", data },
     });
 
-    // ✅ Movimientos: usar inventarioId seleccionado
+    // ✅ Movimientos: ahora “linkeados” por fila -> referenciaOperacion = PLN-R{row}
     const ts = new Date().toISOString();
     const movRowsToAppend: any[][] = [];
 
     for (const it of items) {
+      const row = Number(it.rowIndex1Based || 0);
       const qty = Math.max(0, Number(it.cantidadReservarUnd || 0));
       if (qty <= 0) continue;
 
       const inventarioId = toStr(it.inventarioId || "");
-      if (!inventarioId) continue; // si no seleccionó inventario, no reservamos
+      if (!inventarioId) continue;
 
       movRowsToAppend.push([
         "", // movimientoId
         inventarioId,
         "Reserva",
-        -qty, // negativa
+        -qty,
         0,
-        "", // almacenOrigen
-        "", // almacenDestino
+        "",
+        "",
         pedidoKey,
-        "PLN",
-        "Reserva por planeación",
+        `PLN-R${row}`, // ✅ clave para conectar
+        `Reserva por planeación (row ${row})`,
         ts,
         usuario,
       ]);
@@ -171,10 +155,7 @@ export async function POST(req: Request) {
   } catch (error) {
     console.error("[planeacion/pedido/guardar]", error);
     return NextResponse.json(
-      {
-        success: false,
-        message: error instanceof Error ? error.message : "Error guardando planeación",
-      },
+      { success: false, message: error instanceof Error ? error.message : "Error guardando planeación" },
       { status: 500 }
     );
   }
