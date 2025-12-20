@@ -120,7 +120,7 @@ export default function HomePage() {
               sigla="PL"
               titulo="Planeación"
               descripcion="Verificación y clasificación item por item de cada pedido."
-              estado="Activo"
+              estado="Inactivo"
             />
 
             <ModuloCard
@@ -134,7 +134,7 @@ export default function HomePage() {
               sigla="AL"
               titulo="Abastecimiento y Logística"
               descripcion="Inventarios, despachos, facturación y seguimiento de entregas."
-              estado="Inactivo"
+              estado="Activo"
             />
           </div>
         </section>
