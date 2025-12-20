@@ -9,12 +9,14 @@ export function MainHeader() {
   const pathname = usePathname();
   const router = useRouter();
 
-  // @ts-ignore
-  const role = session?.user?.role;
+type AppRole = "admin" | "comercial" | "produccion" | "planeacion" | "logistica";
+const role = (session?.user as any)?.role as AppRole | undefined;
+
 
   const isActive = (href: string) => {
     if (href === "/") return pathname === "/";
-    return pathname.startsWith(href);
+    // Activo en /planeacion y también en /planeacion/pedido/...
+    return pathname === href || pathname.startsWith(href + "/");
   };
 
   const handlePrimaryButton = () => {
@@ -25,6 +27,8 @@ export function MainHeader() {
 
     if (role === "produccion") {
       router.push("/produccion");
+    } else if (role === "planeacion") {
+      router.push("/planeacion");
     } else {
       // admin o comercial
       router.push("/comercial");
@@ -64,10 +68,11 @@ export function MainHeader() {
             </NavItem>
           )}
 
-          {/* Solo texto por ahora */}
-          <span className="rounded-full px-3 py-1 text-xs text-slate-400">
-            Planeación
-          </span>
+          {(role === "planeacion" || role === "admin" || !role) && (
+            <NavItem href="/planeacion" active={isActive("/planeacion")}>
+              Planeación
+            </NavItem>
+          )}
 
           {(role === "produccion" || role === "admin" || !role) && (
             <NavItem href="/produccion" active={isActive("/produccion")}>
@@ -75,38 +80,45 @@ export function MainHeader() {
             </NavItem>
           )}
 
-          <span className="rounded-full px-3 py-1 text-xs text-slate-400">
-            Abastecimiento y Logística
-          </span>
-          
+          {(role === "logistica" || role === "admin" || !role) ? (
+            <NavItem
+              href="/abastecimiento-logistica"
+              active={isActive("/abastecimiento-logistica")}
+            >
+              Abastecimiento y Logística
+            </NavItem>
+          ) : (
+            <span className="rounded-full px-3 py-1 text-xs text-slate-400">
+              Abastecimiento y Logística
+            </span>
+          )}
         </nav>
 
         {/* Zona derecha */}
-<div className="flex items-center gap-3">
-  {status === "authenticated" ? (
-    <>
-      <span className="hidden max-w-[180px] truncate text-xs text-slate-500 sm:inline">
-        {session?.user?.email}
-      </span>
-      <button
-        type="button"
-        onClick={() => signOut()}
-        className="rounded-full border border-slate-200 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
-      >
-        Cerrar sesión
-      </button>
-    </>
-  ) : (
-    <button
-      type="button"
-      onClick={() => signIn("auth0")}
-      className="rounded-full bg-emerald-600 px-4 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-emerald-700"
-    >
-      Entrar al sistema
-    </button>
-  )}
-</div>
-
+        <div className="flex items-center gap-3">
+          {status === "authenticated" ? (
+            <>
+              <span className="hidden max-w-[180px] truncate text-xs text-slate-500 sm:inline">
+                {session?.user?.email}
+              </span>
+              <button
+                type="button"
+                onClick={() => signOut()}
+                className="rounded-full border border-slate-200 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+              >
+                Cerrar sesión
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={() => signIn("auth0")}
+              className="rounded-full bg-emerald-600 px-4 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-emerald-700"
+            >
+              Entrar al sistema
+            </button>
+          )}
+        </div>
       </div>
     </header>
   );

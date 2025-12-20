@@ -85,7 +85,7 @@ export default function HomePage() {
               <ResumenItem
                 titulo="Inventarios"
                 descripcion="Movimientos controlados por Kardex central."
-                etiqueta="Logística"
+                etiqueta="Abastecimiento y Logística"
                 color="text-amber-600 bg-amber-50"
               />
             </div>
@@ -120,7 +120,7 @@ export default function HomePage() {
               sigla="PL"
               titulo="Planeación"
               descripcion="Verificación y clasificación item por item de cada pedido."
-              estado="Inactivo"
+              estado="Activo"
             />
 
             <ModuloCard
@@ -134,7 +134,7 @@ export default function HomePage() {
               sigla="AL"
               titulo="Abastecimiento y Logística"
               descripcion="Inventarios, despachos, facturación y seguimiento de entregas."
-              estado="Activo"
+              estado="Inactivo"
             />
           </div>
         </section>
@@ -172,7 +172,7 @@ export default function HomePage() {
         <PasoCard
           numero="04"
           titulo="Abastecimiento y Logística"
-          descripcion="Recibe materia prima, controla inventarios y alimenta el análisis para el resto del sistema."
+          descripcion="Recibe materia prima, controla inventarios y alimenta infomación de despachos."
         />
       </div>
     </section>
