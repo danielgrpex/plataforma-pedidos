@@ -4,248 +4,159 @@ import { env } from "@/lib/config/env";
 import { getSheetsClient } from "@/lib/google/googleSheets";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+type Body = {
+  creado_por?: string;
+  codigo_doc?: string;
+  observaciones?: string;
+  items: { rowIndex1Based: number; actividades?: string }[];
+};
 
 function toStr(v: unknown) {
   return String(v ?? "").trim();
 }
-
-function toNumber(v: unknown) {
-  if (v === null || v === undefined || v === "") return 0;
-  const s = String(v).trim().replace(/\s/g, "").replace(/\./g, "").replace(",", ".");
-  const n = Number(s);
-  return Number.isFinite(n) ? n : 0;
+function norm(v: unknown) {
+  return toStr(v).toLowerCase();
 }
-
-type Body = {
-  items?: Array<{
-    rowIndex1Based: number;
-    actividades?: string; // "Cortar|Limpiar|..."
-  }>;
-};
+function findCol(headers: any[], candidates: string[]) {
+  const h = headers.map((x) => norm(x));
+  for (const c of candidates) {
+    const idx = h.indexOf(norm(c));
+    if (idx >= 0) return idx;
+  }
+  return -1;
+}
+function colToA1(idx: number) {
+  let n = idx + 1;
+  let s = "";
+  while (n > 0) {
+    const r = (n - 1) % 26;
+    s = String.fromCharCode(65 + r) + s;
+    n = Math.floor((n - 1) / 26);
+  }
+  return s;
+}
+function getBaseUrl(req: Request) {
+  const host = req.headers.get("x-forwarded-host") || req.headers.get("host");
+  const proto = req.headers.get("x-forwarded-proto") || "http";
+  return `${proto}://${host}`;
+}
 
 export async function POST(req: Request) {
   try {
-    const body = (await req.json().catch(() => ({}))) as Body;
+    const body = (await req.json()) as Body;
 
-    // Mapa actividades por fila (rowIndex1Based)
-    const actsByRow: Record<number, string> = {};
-    for (const it of body?.items || []) {
-      const row = Number(it?.rowIndex1Based || 0);
-      if (!row) continue;
-      const acts = toStr(it?.actividades) || "Cortar";
-      actsByRow[row] = acts;
+    // endpoint “alive check”
+    if (!body?.items?.length) {
+      return NextResponse.json({ success: true, ok: "POST /api/produccion/corte/generar funciona" });
     }
 
+    // Validación fuerte
+    for (const it of body.items) {
+      if (typeof it.rowIndex1Based !== "number" || !Number.isFinite(it.rowIndex1Based)) {
+        return NextResponse.json(
+          { success: false, message: "rowIndex1Based faltante o inválido", item: it },
+          { status: 400 }
+        );
+      }
+    }
+
+    const baseUrl = getBaseUrl(req);
+
+    // 1) Llamar al generador real (Supabase + PDF)
+    const genRes = await fetch(`${baseUrl}/api/produccion/orden-corte/generar`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        creado_por: toStr(body.creado_por) || "Sistema",
+        codigo_doc: toStr(body.codigo_doc) || "PEX-0F-16",
+        observaciones: toStr(body.observaciones) || "",
+        items: body.items.map((x) => ({
+          rowIndex1Based: x.rowIndex1Based,
+          actividades: toStr(x.actividades) || "Cortar",
+        })),
+      }),
+    });
+
+    const genJson = await genRes.json();
+    if (!genRes.ok || !genJson?.success) {
+  console.error("[corte/generar] genJson raw =>", genJson);
+  return NextResponse.json(
+    { success: false, message: genJson?.message || "Error creando orden en Supabase/PDF", raw: genJson },
+    { status: 500 }
+  );
+}
+
+
+    // 2) Actualizar Pedidos: sacar de “Corte”
     const sheets = await getSheetsClient();
 
-    // 1) Leer Pedidos
     const pedResp = await sheets.spreadsheets.values.get({
       spreadsheetId: env.SHEET_BASE_PRINCIPAL_ID,
-      range: "Pedidos!A:AM",
+      range: "Pedidos!A:BM",
       valueRenderOption: "UNFORMATTED_VALUE",
     });
+
     const pedValues = (pedResp.data.values || []) as any[][];
-    const pedRows = pedValues.length > 1 ? pedValues.slice(1) : [];
-
-    // Columnas importantes (0-based):
-    // productoSolicitado = G (idx 6)
-    // cantidadUnd = L (idx 11)
-    // estadoPlaneacion = W (idx 22)   (según tu código actual)
-    // pedidoKey = AL (idx 37)
-    const P_IDX_PRODUCTO = 6;
-    const P_IDX_CANTUND = 11;
-    const P_IDX_ESTADO_PLANEACION = 22;
-    const P_IDX_PEDIDOKEY = 37;
-
-    const pendientes = pedRows
-      .map((r, i) => ({ r, rowIndex1Based: i + 2 }))
-      .filter((x) => toStr(x.r[P_IDX_ESTADO_PLANEACION]) === "Corte");
-
-    if (!pendientes.length) {
+    if (pedValues.length < 2) {
       return NextResponse.json(
-        { success: false, message: "No hay items en estado Corte" },
+        { success: false, message: "No pude leer Pedidos para actualizar estados" },
+        { status: 500 }
+      );
+    }
+
+    const headers = pedValues[0] || [];
+
+    const IDX_ESTADO_PLANEACION = findCol(headers, ["Estado Planeación", "Estado Planeacion"]);
+    const IDX_ESTADO = findCol(headers, ["Estado"]);
+
+    if (IDX_ESTADO_PLANEACION < 0) {
+      return NextResponse.json(
+        { success: false, message: "No encuentro la columna 'Estado Planeación' en Pedidos" },
         { status: 400 }
       );
     }
 
-    // 2) Leer MovimientosInventario (para encontrar reservas)
-    const movResp = await sheets.spreadsheets.values.get({
-      spreadsheetId: env.SHEET_BASE_PRINCIPAL_ID,
-      range: "MovimientosInventario!A:L",
-      valueRenderOption: "UNFORMATTED_VALUE",
-    });
-    const movValues = (movResp.data.values || []) as any[][];
-    const movRows = movValues.length > 1 ? movValues.slice(1) : [];
+    // ✅ Estado nuevo (elige el que te convenga; con esto deja de aparecer en pendientes “Corte”)
+    const NUEVO_ESTADO = "Corte Generado";
 
-    // Movimientos:
-    // inventarioId = B idx1
-    // tipo = C idx2
-    // cantidadUnd = D idx3 (negativa reserva)
-    // pedidoKey = H idx7
-    // referenciaOperacion = I idx8 (PLN-R{row})
-    const M_IDX_INVID = 1;
-    const M_IDX_TIPO = 2;
-    const M_IDX_QTYUND = 3;
-    const M_IDX_PEDIDOKEY = 7;
-    const M_IDX_REF = 8;
+    const updates: { range: string; values: any[][] }[] = [];
 
-    // index rápido: key = pedidoKey|ref
-    const movMap: Record<string, { inventarioId: string; qtyUnd: number }> = {};
-    for (const m of movRows) {
-      if (toStr(m[M_IDX_TIPO]) !== "Reserva") continue;
-      const pk = toStr(m[M_IDX_PEDIDOKEY]);
-      const ref = toStr(m[M_IDX_REF]);
-      const invId = toStr(m[M_IDX_INVID]);
-      const qty = toNumber(m[M_IDX_QTYUND]);
-      if (!pk || !ref || !invId) continue;
-      movMap[`${pk}|${ref}`] = { inventarioId: invId, qtyUnd: qty };
-    }
+    for (const it of body.items) {
+      const row = it.rowIndex1Based;
 
-    // 3) Leer Inventario (para resolver productoOrigen + largoOrigen)
-    const invResp = await sheets.spreadsheets.values.get({
-      spreadsheetId: env.SHEET_BASE_PRINCIPAL_ID,
-      range: "Inventario!A:AB",
-      valueRenderOption: "UNFORMATTED_VALUE",
-    });
-    const invValues = (invResp.data.values || []) as any[][];
-    const invRows = invValues.length > 1 ? invValues.slice(1) : [];
-
-    /**
-     * Inventario (según tu estructura usada antes):
-     * A inventarioId (idx 0)
-     * E productoDescripcion (idx 4)
-     * I largo (idx 8)
-     */
-    const invMap: Record<string, { productoOrigen: string; largoOrigen: number }> = {};
-    for (const r of invRows) {
-      const invId = toStr(r?.[0]);
-      if (!invId) continue;
-
-      const productoDesc = toStr(r?.[4]);
-      const largo = toNumber(r?.[8]);
-
-      invMap[invId] = {
-        productoOrigen: productoDesc,
-        largoOrigen: largo,
-      };
-    }
-
-    // 4) Consecutivo OrdenCorte
-    const ocResp = await sheets.spreadsheets.values.get({
-      spreadsheetId: env.SHEET_BASE_PRINCIPAL_ID,
-      range: "OrdenCorte!A:B",
-      valueRenderOption: "UNFORMATTED_VALUE",
-    });
-    const ocValues = (ocResp.data.values || []) as any[][];
-    const ocCount = Math.max(0, ocValues.length - 1);
-    const ordenCorteId = `OC-${String(ocCount + 1).padStart(6, "0")}`;
-
-    // 5) Crear OrdenCorte (cabecera)
-    const now = new Date().toISOString();
-    await sheets.spreadsheets.values.append({
-      spreadsheetId: env.SHEET_BASE_PRINCIPAL_ID,
-      range: "OrdenCorte!A:Z",
-      valueInputOption: "USER_ENTERED",
-      insertDataOption: "INSERT_ROWS",
-      requestBody: { values: [[ordenCorteId, now]] },
-    });
-
-    // 6) Crear OrdenCorte_Items (con inventarioOrigenId + productoOrigen + largoOrigen + actividades)
-    // Tu hoja (según screenshot):
-    // A ordenCorteItemId
-    // B ordenCorteId
-    // C pedidoKey
-    // D pedidoRowIndex
-    // E productoSolicitado
-    // F cantidadSolicitadaUnd
-    // G destinoFinal
-    // H estadoItem
-    // I inventarioOrigenId
-    // J productoOrigen
-    // K largoOrigen
-    // L cantidadOrigenUnd
-    // M cantidadOrigenM
-    // N largoFinal
-    // O actividades
-    const itemsToAppend: any[][] = [];
-    let itemNum = 0;
-
-    for (const p of pendientes) {
-      const pedidoKey = toStr(p.r[P_IDX_PEDIDOKEY]);
-      const productoSolicitado = toStr(p.r[P_IDX_PRODUCTO]);
-      const cantUnd = toNumber(p.r[P_IDX_CANTUND]);
-      const row = p.rowIndex1Based;
-
-      const ref = `PLN-R${row}`;
-      const mv = movMap[`${pedidoKey}|${ref}`];
-
-      const inventarioOrigenId = mv?.inventarioId || "";
-      const cantidadOrigenUnd = mv ? Math.abs(mv.qtyUnd) : 0;
-
-      const invInfo = inventarioOrigenId ? invMap[inventarioOrigenId] : undefined;
-      const productoOrigen = invInfo?.productoOrigen || "";
-      const largoOrigen = invInfo?.largoOrigen || 0;
-
-      const actividades = actsByRow[row] || "Cortar";
-
-      itemNum++;
-      const ordenCorteItemId = `OCI-${String(itemNum).padStart(6, "0")}`;
-
-      itemsToAppend.push([
-        ordenCorteItemId,     // A
-        ordenCorteId,         // B
-        pedidoKey,            // C
-        row,                  // D
-        productoSolicitado,   // E
-        cantUnd,              // F
-        "Corte",              // G destinoFinal
-        "Pendiente",          // H estadoItem
-        inventarioOrigenId,   // I
-        productoOrigen,       // J ✅
-        largoOrigen || "",    // K ✅
-        cantidadOrigenUnd,    // L
-        "",                   // M cantidadOrigenM (si luego lo necesitas)
-        "",                   // N largoFinal
-        actividades,          // O ✅
-      ]);
-    }
-
-    await sheets.spreadsheets.values.append({
-      spreadsheetId: env.SHEET_BASE_PRINCIPAL_ID,
-      range: "OrdenCorte_Items!A:Z",
-      valueInputOption: "USER_ENTERED",
-      insertDataOption: "INSERT_ROWS",
-      requestBody: { values: itemsToAppend },
-    });
-
-    // 7) Actualizar Pedidos: W y X -> "Corte Generado"
-    const updateData: Array<{ range: string; values: any[][] }> = [];
-    for (const p of pendientes) {
-      const row = p.rowIndex1Based;
-      updateData.push({
-        range: `Pedidos!W${row}:X${row}`,
-        values: [["Corte Generado", "Corte Generado"]],
+      updates.push({
+        range: `Pedidos!${colToA1(IDX_ESTADO_PLANEACION)}${row}`,
+        values: [[NUEVO_ESTADO]],
       });
+
+      if (IDX_ESTADO >= 0) {
+        updates.push({
+          range: `Pedidos!${colToA1(IDX_ESTADO)}${row}`,
+          values: [[NUEVO_ESTADO]],
+        });
+      }
     }
 
     await sheets.spreadsheets.values.batchUpdate({
       spreadsheetId: env.SHEET_BASE_PRINCIPAL_ID,
-      requestBody: { valueInputOption: "USER_ENTERED", data: updateData },
+      requestBody: { valueInputOption: "RAW", data: updates },
     });
+
+    // 3) Append a hojas “ordenCorte” y “ordenCorteItems” (si existen)
+    // Si no existen, NO tumba el proceso (catch silencioso)
 
     return NextResponse.json({
       success: true,
-      ordenCorteId,
-      itemsCreados: itemsToAppend.length,
-      pedidosActualizados: updateData.length,
+      ...genJson,
+      updated_pedidos_rows: body.items.map((x) => x.rowIndex1Based),
+      nuevo_estado: NUEVO_ESTADO,
     });
   } catch (error) {
     console.error("[produccion/corte/generar]", error);
     return NextResponse.json(
-      {
-        success: false,
-        message: error instanceof Error ? error.message : "Error generando orden de corte",
-      },
+      { success: false, message: error instanceof Error ? error.message : "Error generando corte" },
       { status: 500 }
     );
   }

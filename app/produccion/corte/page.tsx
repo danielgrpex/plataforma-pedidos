@@ -81,34 +81,48 @@ export default function ProduccionCortePage() {
     });
   }
 
-  async function generarOrden() {
-    const picked = selectedItems;
-    if (!picked.length) return alert("Selecciona al menos 1 item");
+async function generarOrden() {
+  const picked = selectedItems;
+  if (!picked.length) return alert("Selecciona al menos 1 item");
 
-    // ✅ payload EXACTO que espera el backend:
-    // { items: [{ rowIndex1Based, actividades }] }
-    const payload = {
-      items: picked.map((it) => {
-        const k = `${it.pedidoKey}|${it.rowIndex1Based}`;
-        return {
-          rowIndex1Based: it.rowIndex1Based,
-          actividades: joinActs(actsByKey[k] || ["Cortar"]),
-        };
-      }),
-    };
+  // ✅ Payload correcto para /api/produccion/corte/generar
+  const payload = {
+    creado_por: "Daniel", // luego lo conectamos a la sesión
+    codigo_doc: "PEX-0F-16", // SOLO PDF (en Supabase no existe esta columna)
+    observaciones: "",
+    items: picked.map((it) => {
+      const k = `${it.pedidoKey}|${it.rowIndex1Based}`;
+      const actividades = joinActs(actsByKey[k] || ["Cortar"]);
+      return {
+        rowIndex1Based: it.rowIndex1Based,
+        actividades,
+      };
+    }),
+  };
 
-    const res = await fetch("/api/produccion/corte/generar", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
+  const res = await fetch("/api/produccion/corte/generar", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
 
-    const json = await res.json();
-    if (!json?.success) return alert(json?.message || "Error generando orden");
+  const json = await res.json().catch(() => ({}));
 
-    alert(`Orden generada ✅ ${json.ordenCorteId || ""}`);
-    await load();
+  // ✅ Manejo de error REAL (para ver el mensaje del backend)
+  if (!res.ok || json?.success === false) {
+    console.error("ERROR generar orden:", { status: res.status, json });
+    return alert(json?.message || `Error generando orden de corte (HTTP ${res.status})`);
   }
+
+  // Abre el PDF automáticamente
+  if (json.pdf_signed_url) window.open(json.pdf_signed_url, "_blank");
+
+  alert(`Orden generada ✅ ${json.numero_orden || ""}`);
+
+  await load();
+}
+
+
 
   return (
     <main className="mx-auto max-w-6xl px-6 py-8">

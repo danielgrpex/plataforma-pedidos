@@ -1,4 +1,3 @@
-// app/api/produccion/corte/pendientes/route.ts
 import { NextResponse } from "next/server";
 import { env } from "@/lib/config/env";
 import { getSheetsClient } from "@/lib/google/googleSheets";
@@ -43,8 +42,8 @@ export async function GET(req: Request) {
 
     const sheets = await getSheetsClient();
 
-    // 1) Leer Pedidos
-    const pedRange = "Pedidos!A:BM";
+    // 1) Leer Pedidos (A:AZ por seguridad)
+    const pedRange = "Pedidos!A:AZ";
     const pedResp = await sheets.spreadsheets.values.get({
       spreadsheetId: env.SHEET_BASE_PRINCIPAL_ID,
       range: pedRange,
@@ -55,60 +54,73 @@ export async function GET(req: Request) {
     const headers = pedValues[0] || [];
     const pedRows = pedValues.length > 1 ? pedValues.slice(1) : [];
 
+    // ✅ DEBUG SIEMPRE DISPONIBLE (aunque venga vacío)
     if (debug) {
-      const idxEstadoPlaneacion = findCol(headers, ["Estado Planeación", "Estado Planeacion"]);
-      const counts: Record<string, number> = {};
-      if (idxEstadoPlaneacion >= 0) {
-        for (const r of pedRows) {
-          const k = toStr(r[idxEstadoPlaneacion]) || "(vacío)";
-          counts[k] = (counts[k] || 0) + 1;
-        }
-      }
       return NextResponse.json({
         success: true,
         debug: {
           spreadsheetId: env.SHEET_BASE_PRINCIPAL_ID,
           range: pedRange,
           totalRowsIncludingHeader: pedValues.length,
-          headersPreview: headers.slice(0, 60),
-          firstRowPreview: (pedRows[0] || []).slice(0, 60),
-          estadoPlaneacionIndex: idxEstadoPlaneacion,
-          estadoPlaneacionCounts: Object.entries(counts).slice(0, 25),
+          headersPreview: headers.slice(0, 30),
+          firstRowPreview: (pedRows[0] || []).slice(0, 30),
         },
       });
     }
 
-    if (pedValues.length < 2) return NextResponse.json({ success: true, items: [] });
+    if (pedValues.length < 2) {
+      return NextResponse.json({ success: true, items: [] });
+    }
 
-    // Columnas Pedidos
-    const IDX_CONSEC = findCol(headers, ["Consecutivo"]);
-    const IDX_CLIENTE = findCol(headers, ["Cliente"]);
-    const IDX_OC = findCol(headers, ["Orden de Compra", "OC"]);
-    const IDX_PRODUCTO = findCol(headers, ["Producto"]);
-    const IDX_CANTUND = findCol(headers, ["Cantidad (und)", "Cant (und)"]);
-    const IDX_ESTADO_PLANEACION = findCol(headers, ["Estado Planeación", "Estado Planeacion"]);
-    const IDX_PEDIDOKEY = findCol(headers, ["PedidoKey", "pedidoKey", "pedido_key", "Key"]); // opcional
+    // Buscar columnas por encabezado (pon aquí los nombres reales si difieren)
+    const IDX_CONSEC = findCol(headers, ["Consecutivo", "consecutivo", "Pedido", "#"]);
+    const IDX_CLIENTE = findCol(headers, ["Cliente", "cliente"]);
+    const IDX_OC = findCol(headers, ["OC", "oc", "Orden Compra", "orden compra"]);
+    const IDX_PRODUCTO = findCol(headers, ["Producto", "producto", "Producto Solicitado", "producto solicitado"]);
+    const IDX_CANTUND = findCol(headers, ["Cantidad (und)", "Cant (und)", "cantidad (und)", "cantidad"]);
+    const IDX_ESTADO = findCol(headers, [
+      "Estado Planeación",
+      "Estado Planeacion",
+      "Estado",
+      "estado",
+      "estado planeacion",
+      "estado planeación",
+      "EstadoPlaneacion",
+    ]);
+    const IDX_PEDIDOKEY = findCol(headers, [
+      "PedidoKey",
+      "pedidoKey",
+      "pedido_key",
+      "Key",
+      "ID Pedido",
+      "pedido id",
+    ]);
 
     const missing: string[] = [];
-    if (IDX_ESTADO_PLANEACION < 0) missing.push("Estado Planeación");
+    if (IDX_ESTADO < 0) missing.push("Estado / Estado Planeación");
+    if (IDX_PEDIDOKEY < 0) missing.push("PedidoKey");
+
     if (missing.length) {
       return NextResponse.json(
-        { success: false, message: `No encuentro columnas: ${missing.join(", ")}.` },
+        { success: false, message: `No encuentro columnas: ${missing.join(", ")}. Revisa headers en la hoja Pedidos.` },
         { status: 400 }
       );
     }
 
-    // Pendientes: Estado Planeación = Corte
+    // Filtra pendientes con comparación robusta
     const pendientes = pedRows
       .map((r, i) => ({ r, rowIndex1Based: i + 2 }))
-      .filter((x) => norm(x.r[IDX_ESTADO_PLANEACION]) === "corte");
+      .filter((x) => norm(x.r[IDX_ESTADO]) === "corte");
 
-    if (!pendientes.length) return NextResponse.json({ success: true, items: [] });
+    if (!pendientes.length) {
+      return NextResponse.json({ success: true, items: [] });
+    }
 
-    // 2) Leer MovimientosInventario (reservas)
+    // 2) Leer MovimientosInventario (para reservas)
+    const movRange = "MovimientosInventario!A:L";
     const movResp = await sheets.spreadsheets.values.get({
       spreadsheetId: env.SHEET_BASE_PRINCIPAL_ID,
-      range: "MovimientosInventario!A:L",
+      range: movRange,
       valueRenderOption: "UNFORMATTED_VALUE",
     });
     const movValues = (movResp.data.values || []) as any[][];
@@ -118,48 +130,54 @@ export async function GET(req: Request) {
     const M_IDX_INVID = 1; // B
     const M_IDX_TIPO = 2; // C
     const M_IDX_QTYUND = 3; // D
+    const M_IDX_PEDIDOKEY = 7; // H
     const M_IDX_REF = 8; // I
     const M_IDX_FECHA = 10; // K
 
-    // ✅ NUEVO: Mapa por fila usando SOLO ref PLN-R{row}
-    const reservaByRow: Record<string, { inventarioId: string; qtyUnd: number; ts: string }> = {};
+    // Mapa por (pedidoKey|rowIndex) usando ref PLN-R{row}
+    const reservaByPedidoRow: Record<string, { inventarioId: string; qtyUnd: number; ts: string }> = {};
 
     for (const m of movRows) {
       if (toStr(m[M_IDX_TIPO]) !== "Reserva") continue;
 
+      const pedidoKey = toStr(m[M_IDX_PEDIDOKEY]);
       const invId = toStr(m[M_IDX_INVID]);
       const qty = toNumber(m[M_IDX_QTYUND]); // negativa
       const ref = toStr(m[M_IDX_REF]);
       const ts = toStr(m[M_IDX_FECHA]) || "";
 
-      // 🔥 Ya NO exigimos pedidoKey. Solo inventario y ref válida.
-      if (!invId) continue;
+      if (!pedidoKey || !invId) continue;
 
       const match = ref.match(/^PLN-R(\d+)$/);
       const rowFromRef = match ? Number(match[1] || 0) : 0;
       if (!rowFromRef) continue;
 
-      const key = `ROW-${rowFromRef}`;
+      const key = `${pedidoKey}|${rowFromRef}`;
 
-      const prev = reservaByRow[key];
+      const prev = reservaByPedidoRow[key];
       if (!prev) {
-        reservaByRow[key] = { inventarioId: invId, qtyUnd: qty, ts };
+        reservaByPedidoRow[key] = { inventarioId: invId, qtyUnd: qty, ts };
       } else {
-        // si hay timestamp, quedarse con el más reciente
-        if (ts && prev.ts && ts > prev.ts) reservaByRow[key] = { inventarioId: invId, qtyUnd: qty, ts };
-        else if (!prev.ts && ts) reservaByRow[key] = { inventarioId: invId, qtyUnd: qty, ts };
+        if (ts && prev.ts && ts > prev.ts) reservaByPedidoRow[key] = { inventarioId: invId, qtyUnd: qty, ts };
+        else if (!prev.ts && ts) reservaByPedidoRow[key] = { inventarioId: invId, qtyUnd: qty, ts };
       }
     }
 
-    // 3) Leer Inventario (enriquecer origen)
+    // 3) Leer Inventario (para enriquecer origen)
+    const invRange = "Inventario!A:AB";
     const invResp = await sheets.spreadsheets.values.get({
       spreadsheetId: env.SHEET_BASE_PRINCIPAL_ID,
-      range: "Inventario!A:AB",
+      range: invRange,
       valueRenderOption: "UNFORMATTED_VALUE",
     });
     const invValues = (invResp.data.values || []) as any[][];
     const invRows = invValues.length > 1 ? invValues.slice(1) : [];
 
+    // Inventario idx:
+    // A id (0)
+    // D productoKey (3)
+    // E descripcion (4)
+    // I largo (8)
     const invMap: Record<string, { productoOrigen: string; largoOrigen: number; productoKey: string }> = {};
     for (const r of invRows) {
       const invId = toStr(r?.[0]);
@@ -177,25 +195,21 @@ export async function GET(req: Request) {
       };
     }
 
-    // 4) Respuesta final
+    // 4) Armar respuesta final (shape que espera tu UI)
     const items = pendientes.map((p) => {
       const row = p.rowIndex1Based;
+      const pedidoKey = toStr(p.r[IDX_PEDIDOKEY]);
 
-      const consecutivo = IDX_CONSEC >= 0 ? toStr(p.r[IDX_CONSEC]) : "";
-      const pedidoKeyFromSheet = IDX_PEDIDOKEY >= 0 ? toStr(p.r[IDX_PEDIDOKEY]) : "";
-      const pedidoKey = pedidoKeyFromSheet || (consecutivo ? `PED-${consecutivo}` : `ROW-${row}`);
-
-      // ✅ Buscar reserva por fila
-      const reserva = reservaByRow[`ROW-${row}`];
-
+      const reserva = reservaByPedidoRow[`${pedidoKey}|${row}`];
       const inventarioOrigenId = reserva?.inventarioId || "";
       const cantidadOrigenUnd = reserva ? Math.abs(reserva.qtyUnd || 0) : 0;
+
       const inv = inventarioOrigenId ? invMap[inventarioOrigenId] : null;
 
       return {
         rowIndex1Based: row,
         pedidoKey,
-        consecutivo,
+        consecutivo: IDX_CONSEC >= 0 ? toStr(p.r[IDX_CONSEC]) : "",
         cliente: IDX_CLIENTE >= 0 ? toStr(p.r[IDX_CLIENTE]) : "",
         oc: IDX_OC >= 0 ? toStr(p.r[IDX_OC]) : "",
         productoSolicitado: IDX_PRODUCTO >= 0 ? toStr(p.r[IDX_PRODUCTO]) : "",
@@ -213,7 +227,10 @@ export async function GET(req: Request) {
   } catch (error) {
     console.error("[produccion/corte/pendientes]", error);
     return NextResponse.json(
-      { success: false, message: error instanceof Error ? error.message : "Error cargando pendientes de corte" },
+      {
+        success: false,
+        message: error instanceof Error ? error.message : "Error cargando pendientes de corte",
+      },
       { status: 500 }
     );
   }

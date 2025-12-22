@@ -19,3 +19,9 @@ export function createAdminSupabaseClient() {
     auth: { persistSession: false },
   });
 }
+
+/**
+ * Cliente admin compartido para routes
+ * (evita crear múltiples instancias)
+ */
+export const supabaseAdmin = getSupabaseAdmin();
