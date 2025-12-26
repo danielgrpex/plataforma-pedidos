@@ -82,7 +82,7 @@ const role = (session?.user as any)?.role as AppRole | undefined;
 
           {(role === "logistica" || role === "admin" || !role) ? (
             <NavItem
-              href="/abastecimiento-logistica"
+              href="/abastecimientologistica"
               active={isActive("/abastecimiento-logistica")}
             >
               Abastecimiento y Logística

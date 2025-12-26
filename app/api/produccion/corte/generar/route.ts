@@ -1,4 +1,5 @@
 // app/api/produccion/corte/generar/route.ts
+// app/api/produccion/corte/generar/route.ts
 import { NextResponse } from "next/server";
 import { env } from "@/lib/config/env";
 import { getSheetsClient } from "@/lib/google/googleSheets";
@@ -37,9 +38,12 @@ function colToA1(idx: number) {
   }
   return s;
 }
+
+// ✅ baseUrl seguro (local + vercel)
 function getBaseUrl(req: Request) {
-  const host = req.headers.get("x-forwarded-host") || req.headers.get("host");
-  const proto = req.headers.get("x-forwarded-proto") || "http";
+  const host = req.headers.get("x-forwarded-host") ?? req.headers.get("host");
+  const proto = req.headers.get("x-forwarded-proto") ?? "http";
+  if (!host) throw new Error("No se pudo determinar el host de la request");
   return `${proto}://${host}`;
 }
 
@@ -49,7 +53,10 @@ export async function POST(req: Request) {
 
     // endpoint “alive check”
     if (!body?.items?.length) {
-      return NextResponse.json({ success: true, ok: "POST /api/produccion/corte/generar funciona" });
+      return NextResponse.json({
+        success: true,
+        ok: "POST /api/produccion/corte/generar funciona",
+      });
     }
 
     // Validación fuerte
@@ -81,13 +88,16 @@ export async function POST(req: Request) {
 
     const genJson = await genRes.json();
     if (!genRes.ok || !genJson?.success) {
-  console.error("[corte/generar] genJson raw =>", genJson);
-  return NextResponse.json(
-    { success: false, message: genJson?.message || "Error creando orden en Supabase/PDF", raw: genJson },
-    { status: 500 }
-  );
-}
-
+      console.error("[corte/generar] genJson raw =>", genJson);
+      return NextResponse.json(
+        {
+          success: false,
+          message: genJson?.message || "Error creando orden en Supabase/PDF",
+          raw: genJson,
+        },
+        { status: 500 }
+      );
+    }
 
     // 2) Actualizar Pedidos: sacar de “Corte”
     const sheets = await getSheetsClient();
@@ -107,7 +117,6 @@ export async function POST(req: Request) {
     }
 
     const headers = pedValues[0] || [];
-
     const IDX_ESTADO_PLANEACION = findCol(headers, ["Estado Planeación", "Estado Planeacion"]);
     const IDX_ESTADO = findCol(headers, ["Estado"]);
 
@@ -118,7 +127,7 @@ export async function POST(req: Request) {
       );
     }
 
-    // ✅ Estado nuevo (elige el que te convenga; con esto deja de aparecer en pendientes “Corte”)
+    // ✅ Estado nuevo (deja de aparecer en pendientes “Corte”)
     const NUEVO_ESTADO = "Corte Generado";
 
     const updates: { range: string; values: any[][] }[] = [];
@@ -143,9 +152,6 @@ export async function POST(req: Request) {
       spreadsheetId: env.SHEET_BASE_PRINCIPAL_ID,
       requestBody: { valueInputOption: "RAW", data: updates },
     });
-
-    // 3) Append a hojas “ordenCorte” y “ordenCorteItems” (si existen)
-    // Si no existen, NO tumba el proceso (catch silencioso)
 
     return NextResponse.json({
       success: true,
