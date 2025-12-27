@@ -233,7 +233,7 @@ return (
         ? "/planeacion"
         : titulo === "Producción"
         ? "/produccion"
-        : "//abastecimiento-logistica"
+        : "/abastecimientologistica"
     }
     className="mt-1 text-[11px] font-medium text-emerald-700 hover:text-emerald-800"
   >
