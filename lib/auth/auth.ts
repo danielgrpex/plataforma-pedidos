@@ -3,18 +3,29 @@ import { getServerSession, type NextAuthOptions } from "next-auth";
 import Auth0Provider from "next-auth/providers/auth0";
 import GoogleProvider from "next-auth/providers/google";
 
-type UserRole = "comercial" | "produccion" | "admin" | null;
+type UserRole =
+  | "comercial"
+  | "planeacion"
+  | "produccion"
+  | "logistica"
+  | "admin"
+  | null;
+
 
 const getRoleFromEmail = (email: string): UserRole => {
   const map: Record<string, Exclude<UserRole, null>> = {
+    "asistextrusionysoplado@inplastgr.com": "comercial",
+    "dalfonsoleon1@gmail.com": "planeacion",
+    "paolasuarezorjuela@gmail.com": "produccion",
+    "soplado@inplastgr.com": "logistica",
+
+    // admin total
     "daniel.alfonso@inplastgr.com": "admin",
   };
 
-  const normalized = email.toLowerCase();
-  if (map[normalized]) return map[normalized];
-  if (normalized.endsWith("@inplastgr.com")) return "comercial";
-  return null;
+  return map[email.toLowerCase()] ?? null;
 };
+
 
 const extraAllowedEmails = ["dalfonsoleon1@gmail.com"].map((e) => e.toLowerCase());
 

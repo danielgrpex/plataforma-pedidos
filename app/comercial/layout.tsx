@@ -18,9 +18,9 @@ export default async function ComercialLayout({
   const role = session.user.role as string | undefined;
 
   // Solo pueden entrar comercial y admin
-  if (role !== "comercial" && role !== "admin") {
-    redirect("/sin-acceso");
-  }
+if (role !== "comercial" && role !== "planeacion" && role !== "admin") {
+  redirect("/403");
+}
 
   return <>{children}</>;
 }

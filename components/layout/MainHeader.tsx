@@ -1,47 +1,43 @@
+//components/layout/MainHeader.tsx
 "use client";
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useSession, signIn, signOut } from "next-auth/react";
 
+type AppRole = "admin" | "comercial" | "produccion" | "planeacion" | "logistica";
+
 export function MainHeader() {
   const { data: session, status } = useSession();
   const pathname = usePathname();
   const router = useRouter();
 
-type AppRole = "admin" | "comercial" | "produccion" | "planeacion" | "logistica";
-const role = (session?.user as any)?.role as AppRole | undefined;
+  const role = (session?.user as any)?.role as AppRole | undefined;
+  const isAuthed = status === "authenticated";
 
+  // 🔐 permisos reales (solo aplican si está logueado)
+  const can = {
+    comercial: role === "comercial" || role === "planeacion" || role === "admin",
+    planeacion: role === "planeacion" || role === "admin",
+    produccion: role === "produccion" || role === "admin",
+    logistica: role === "logistica" || role === "admin",
+  };
+
+  // 👉 destino cuando NO está logueado
+  const guestHref = "/api/auth/signin";
 
   const isActive = (href: string) => {
     if (href === "/") return pathname === "/";
-    // Activo en /planeacion y también en /planeacion/pedido/...
     return pathname === href || pathname.startsWith(href + "/");
-  };
-
-  const handlePrimaryButton = () => {
-    if (status !== "authenticated") {
-      signIn("auth0");
-      return;
-    }
-
-    if (role === "produccion") {
-      router.push("/produccion");
-    } else if (role === "planeacion") {
-      router.push("/planeacion");
-    } else {
-      // admin o comercial
-      router.push("/comercial");
-    }
   };
 
   return (
     <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/90 backdrop-blur shadow-sm">
-      {/* Línea de color arriba */}
+      {/* Línea superior */}
       <div className="h-0.5 w-full bg-gradient-to-r from-emerald-500 via-sky-400 to-violet-500" />
 
       <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
-        {/* Marca izquierda */}
+        {/* Marca */}
         <div className="flex items-center gap-3">
           <div className="flex h-9 w-9 items-center justify-center rounded-full bg-emerald-600 text-xs font-semibold text-white shadow-sm">
             GR
@@ -56,47 +52,56 @@ const role = (session?.user as any)?.role as AppRole | undefined;
           </div>
         </div>
 
-        {/* Navegación central */}
+        {/* Navegación */}
         <nav className="hidden items-center gap-2 text-sm md:flex">
           <NavItem href="/" active={isActive("/")}>
             Inicio
           </NavItem>
 
-          {(role === "comercial" || role === "admin" || !role) && (
-            <NavItem href="/comercial" active={isActive("/comercial")}>
+          {/* Comercial */}
+          {(!isAuthed || can.comercial) && (
+            <NavItem
+              href={isAuthed ? "/comercial" : guestHref}
+              active={isActive("/comercial")}
+            >
               Comercial
             </NavItem>
           )}
 
-          {(role === "planeacion" || role === "admin" || !role) && (
-            <NavItem href="/planeacion" active={isActive("/planeacion")}>
+          {/* Planeación */}
+          {(!isAuthed || can.planeacion) && (
+            <NavItem
+              href={isAuthed ? "/planeacion" : guestHref}
+              active={isActive("/planeacion")}
+            >
               Planeación
             </NavItem>
           )}
 
-          {(role === "produccion" || role === "admin" || !role) && (
-            <NavItem href="/produccion" active={isActive("/produccion")}>
+          {/* Producción */}
+          {(!isAuthed || can.produccion) && (
+            <NavItem
+              href={isAuthed ? "/produccion" : guestHref}
+              active={isActive("/produccion")}
+            >
               Producción
             </NavItem>
           )}
 
-          {(role === "logistica" || role === "admin" || !role) ? (
+          {/* Logística */}
+          {(!isAuthed || can.logistica) && (
             <NavItem
-              href="/abastecimientologistica"
-              active={isActive("/abastecimiento-logistica")}
+              href={isAuthed ? "/abastecimientologistica" : guestHref}
+              active={isActive("/abastecimientologistica")}
             >
               Abastecimiento y Logística
             </NavItem>
-          ) : (
-            <span className="rounded-full px-3 py-1 text-xs text-slate-400">
-              Abastecimiento y Logística
-            </span>
           )}
         </nav>
 
         {/* Zona derecha */}
         <div className="flex items-center gap-3">
-          {status === "authenticated" ? (
+          {isAuthed ? (
             <>
               <span className="hidden max-w-[180px] truncate text-xs text-slate-500 sm:inline">
                 {session?.user?.email}
@@ -124,7 +129,10 @@ const role = (session?.user as any)?.role as AppRole | undefined;
   );
 }
 
-// Componente pequeño para los items del menú
+/* =========================
+   NavItem
+   ========================= */
+
 function NavItem({
   href,
   active,

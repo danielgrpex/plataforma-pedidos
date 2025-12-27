@@ -1,7 +1,9 @@
+// app/comercial/page.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useSession } from "next-auth/react";
 
 type PedidoListItem = {
   consecutivo: string;
@@ -47,6 +49,10 @@ function formatFechaColombia(value: string) {
 }
 
 export default function ComercialListadoPage() {
+  const { data: session } = useSession();
+  const role = (session?.user as any)?.role as string | undefined;
+  const canCreate = role === "comercial" || role === "admin";
+
   const [items, setItems] = useState<PedidoListItem[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -67,12 +73,16 @@ export default function ComercialListadoPage() {
       if (q.trim()) params.set("q", q.trim());
       if (estado.trim()) params.set("estado", estado.trim());
 
-      const res = await fetch(`/api/comercial/pedidos/list?${params.toString()}`, {
-        cache: "no-store",
-      });
+      const res = await fetch(
+        `/api/comercial/pedidos/list?${params.toString()}`,
+        {
+          cache: "no-store",
+        }
+      );
       const json = await res.json();
 
-      if (!json?.success) throw new Error(json?.message || "Error cargando pedidos");
+      if (!json?.success)
+        throw new Error(json?.message || "Error cargando pedidos");
 
       const loadedItems = (json.items || []) as PedidoListItem[];
 
@@ -122,12 +132,14 @@ export default function ComercialListadoPage() {
           </p>
         </div>
 
-        <Link
-          href="/comercial/nuevo"
-          className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700"
-        >
-          + Nuevo pedido
-        </Link>
+        {canCreate && (
+          <Link
+            href="/comercial/nuevo"
+            className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700"
+          >
+            + Nuevo pedido
+          </Link>
+        )}
       </div>
 
       {/* Filtros */}
@@ -252,7 +264,9 @@ export default function ComercialListadoPage() {
                               "Este registro no tiene pedidoKey (columna AL). Revisa que el listado esté trayendo AL."
                             );
                           }
-                          window.location.href = `/comercial/pedido/${encodeURIComponent(p.pedidoKey)}`;
+                          window.location.href = `/comercial/pedido/${encodeURIComponent(
+                            p.pedidoKey
+                          )}`;
                         }}
                       >
                         Ver pedido
