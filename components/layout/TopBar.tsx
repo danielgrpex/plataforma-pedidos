@@ -1,12 +1,18 @@
 "use client";
 
-import { useSession, signIn, signOut } from "next-auth/react";
 import Link from "next/link";
+import { useSession, signIn, signOut } from "next-auth/react";
+
+type AppRole = "admin" | "comercial" | "produccion" | "planeacion" | "logistica";
 
 export function TopBar() {
   const { data: session, status } = useSession();
-  // @ts-ignore
-  const role = session?.user?.role;
+  const isAuthed = status === "authenticated";
+
+  const role = (session?.user as any)?.role as AppRole | undefined;
+
+  // Para visitantes: se ve todo pero al click manda a login
+  const guestHref = "/api/auth/signin";
 
   return (
     <header className="border-b border-slate-200 bg-white">
@@ -23,27 +29,54 @@ export function TopBar() {
             <span className="text-xs font-medium uppercase tracking-[0.2em] text-slate-500">
               Plataforma Pedidos
             </span>
-            <span className="text-sm font-semibold text-slate-900">
-              Panel Operativo
-            </span>
+            <span className="text-sm font-semibold text-slate-900">Panel Operativo</span>
           </div>
         </div>
 
         {/* Navegación por rol */}
         <nav className="flex items-center gap-4 text-sm">
-          {role === "comercial" || role === "admin" ? (
-            <Link href="/comercial" className="text-slate-700 hover:text-emerald-600">
+          {/* Comercial */}
+          {(!isAuthed || role === "comercial" || role === "planeacion" || role === "admin") && (
+            <Link
+              href={isAuthed ? "/comercial" : guestHref}
+              className="text-slate-700 hover:text-emerald-600"
+            >
               Comercial
             </Link>
-          ) : null}
+          )}
 
-          {role === "produccion" || role === "admin" ? (
-            <Link href="/produccion" className="text-slate-700 hover:text-emerald-600">
+          {/* Planeación */}
+          {(!isAuthed || role === "planeacion" || role === "admin") && (
+            <Link
+              href={isAuthed ? "/planeacion" : guestHref}
+              className="text-slate-700 hover:text-emerald-600"
+            >
+              Planeación
+            </Link>
+          )}
+
+          {/* Producción */}
+          {(!isAuthed || role === "produccion" || role === "admin") && (
+            <Link
+              href={isAuthed ? "/produccion" : guestHref}
+              className="text-slate-700 hover:text-emerald-600"
+            >
               Producción
             </Link>
-          ) : null}
+          )}
 
-          {status === "authenticated" ? (
+          {/* Logística */}
+          {(!isAuthed || role === "logistica" || role === "admin") && (
+            <Link
+              href={isAuthed ? "/abastecimientologistica" : guestHref}
+              className="text-slate-700 hover:text-emerald-600"
+            >
+              Abastecimiento y Logística
+            </Link>
+          )}
+
+          {/* Auth */}
+          {isAuthed ? (
             <div className="flex items-center gap-3">
               <span className="hidden text-xs text-slate-500 sm:inline">
                 {session?.user?.email}
@@ -57,12 +90,11 @@ export function TopBar() {
             </div>
           ) : (
             <button
-  onClick={() => signIn("auth0")}
-  className="rounded-full bg-emerald-600 px-4 py-1.5 text-xs font-medium text-white shadow-sm hover:bg-emerald-700"
->
-  Entrar con Google
-</button>
-
+              onClick={() => signIn("auth0")}
+              className="rounded-full bg-emerald-600 px-4 py-1.5 text-xs font-medium text-white shadow-sm hover:bg-emerald-700"
+            >
+              Entrar al sistema
+            </button>
           )}
         </nav>
       </div>
