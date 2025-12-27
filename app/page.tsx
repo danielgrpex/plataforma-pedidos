@@ -127,14 +127,14 @@ export default function HomePage() {
               sigla="PR"
               titulo="Producción"
               descripcion="Generación de OPE y OTE. Programación de máquinas y control operativo."
-              estado="Inactivo"
+              estado="Activo"
             />
 
             <ModuloCard
               sigla="AL"
               titulo="Abastecimiento y Logística"
               descripcion="Inventarios, despachos, facturación y seguimiento de entregas."
-              estado="Inactivo"
+              estado="Activo"
             />
           </div>
         </section>
@@ -233,7 +233,7 @@ return (
         ? "/planeacion"
         : titulo === "Producción"
         ? "/produccion"
-        : "/almacen"
+        : "//abastecimiento-logistica"
     }
     className="mt-1 text-[11px] font-medium text-emerald-700 hover:text-emerald-800"
   >
