@@ -1,3 +1,5 @@
+//app/planeacion/page.tsx
+// app/planeacion/page.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -10,7 +12,7 @@ type PedidoRow = {
   cliente: string;
   direccion: string;
   oc: string;
-  fechaRequerida: string;
+  fechaRequerida: string; // ✅ ahora llega ISO desde el API
   clasificacionPlaneacion: string;
   estadoPlaneacion: string;
   revisadoPlaneacion: boolean;
@@ -18,15 +20,21 @@ type PedidoRow = {
 
 function formatFechaColombia(value?: string) {
   if (!value) return "—";
+
+  // Si viene ISO (ej: 2026-01-10T00:00:00.000Z)
   const d = new Date(value);
-  if (isNaN(d.getTime())) return value;
-  const day = d.getDate().toString().padStart(2, "0");
-  const month = d
-    .toLocaleDateString("es-CO", { month: "short" })
-    .replace(".", "")
-    .replace(/^\w/, (c) => c.toUpperCase());
-  const year = d.getFullYear();
-  return `${day}-${month}-${year}`;
+  if (!Number.isNaN(d.getTime())) {
+    const day = d.getDate().toString().padStart(2, "0");
+    const month = d
+      .toLocaleDateString("es-CO", { month: "short" })
+      .replace(".", "")
+      .replace(/^\w/, (c) => c.toUpperCase());
+    const year = d.getFullYear();
+    return `${day}-${month}-${year}`;
+  }
+
+  // fallback
+  return value;
 }
 
 export default function PlaneacionListadoPage() {
@@ -48,14 +56,19 @@ export default function PlaneacionListadoPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const empty = useMemo(() => !loading && items.length === 0, [loading, items.length]);
+  const empty = useMemo(
+    () => !loading && items.length === 0,
+    [loading, items.length]
+  );
 
   return (
     <main className="mx-auto max-w-6xl px-6 py-8">
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold">Planeación</h1>
-          <p className="text-sm text-slate-500">Pedidos pendientes por clasificar y reservar inventario.</p>
+          <p className="text-sm text-slate-500">
+            Pedidos pendientes por clasificar y reservar inventario.
+          </p>
         </div>
       </div>
 

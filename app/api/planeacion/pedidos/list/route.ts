@@ -1,3 +1,5 @@
+//app/api/planeacion/pedidos/list/route.ts
+// app/api/planeacion/pedidos/list/route.ts
 import { NextResponse } from "next/server";
 import { env } from "@/lib/config/env";
 import { getSheetsClient } from "@/lib/google/googleSheets";
@@ -11,6 +13,48 @@ function toStr(v: unknown) {
 function isTrue(v: unknown) {
   const s = toStr(v).toLowerCase();
   return s === "true" || s === "1" || s === "si" || s === "sí";
+}
+
+/**
+ * Google Sheets serial date:
+ * - Días desde 1899-12-30 (equivalente Excel)
+ */
+function sheetsSerialToDate(serial: number): Date {
+  // 25569 = días entre 1899-12-30 y 1970-01-01
+  const ms = Math.round((serial - 25569) * 86400 * 1000);
+  return new Date(ms);
+}
+
+/**
+ * Convierte lo que venga desde Sheets (serial number / string / ISO) a ISO string.
+ * Ej:
+ * - 46031 -> "2026-01-10T00:00:00.000Z"
+ * - "46031" -> idem
+ * - "10/1/2026" -> ISO si parsea
+ */
+function toISODateFromSheets(value: unknown): string {
+  if (value == null) return "";
+
+  // Si viene como número (UNFORMATTED_VALUE)
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return sheetsSerialToDate(value).toISOString();
+  }
+
+  const s = toStr(value);
+  if (!s) return "";
+
+  // Si viene como string numérico: "46031"
+  if (/^\d+(\.\d+)?$/.test(s)) {
+    const n = Number(s);
+    if (Number.isFinite(n)) return sheetsSerialToDate(n).toISOString();
+  }
+
+  // Si viene como fecha ya parseable
+  const d = new Date(s);
+  if (!Number.isNaN(d.getTime())) return d.toISOString();
+
+  // fallback: devuélvelo como texto (frontend lo mostrará tal cual)
+  return s;
 }
 
 export async function GET(req: Request) {
@@ -38,6 +82,7 @@ export async function GET(req: Request) {
      * X  = 23 → Estado
      * V  = 21 → Revisado Planeación
      * AL = 37 → pedidoKey
+     * P  = 15 → Fecha Requerida Cliente
      */
     const map = new Map<string, any>();
 
@@ -45,13 +90,13 @@ export async function GET(req: Request) {
       const pedidoKey = toStr(r[37]);
       if (!pedidoKey) continue;
 
-      const estadoPedido = toStr(r[23]); // ✅ ESTADO REAL
+      const estadoPedido = toStr(r[23]); // Estado general
       const revisadoPlaneacion = isTrue(r[21]);
 
-      // 👉 SOLO "En verificación"
+      // SOLO "En verificación"
       if (estadoPedido.toLowerCase() !== "en verificación") continue;
 
-      // 👉 SOLO no revisados aún
+      // SOLO no revisados aún
       if (revisadoPlaneacion) continue;
 
       // Solo un registro por pedidoKey
@@ -61,7 +106,8 @@ export async function GET(req: Request) {
           consecutivo: toStr(r[0]),
           cliente: toStr(r[3]),
           oc: toStr(r[5]),
-          fechaRequerida: toStr(r[15]),
+          // ✅ AQUÍ ESTÁ EL FIX:
+          fechaRequerida: toISODateFromSheets(r[15]),
           estadoPlaneacion: estadoPedido,
         });
       }
