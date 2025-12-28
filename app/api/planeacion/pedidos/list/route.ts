@@ -19,43 +19,48 @@ function isTrue(v: unknown) {
  * Google Sheets serial date:
  * - Días desde 1899-12-30 (equivalente Excel)
  */
-function sheetsSerialToDate(serial: number): Date {
+function sheetsSerialToYMD(serial: number): string {
   // 25569 = días entre 1899-12-30 y 1970-01-01
   const ms = Math.round((serial - 25569) * 86400 * 1000);
-  return new Date(ms);
+
+  // ✅ Tomamos componentes en UTC para que no “baje” por timezone
+  const d = new Date(ms);
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(d.getUTCDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`; // ✅ sin zona horaria
 }
 
-/**
- * Convierte lo que venga desde Sheets (serial number / string / ISO) a ISO string.
- * Ej:
- * - 46031 -> "2026-01-10T00:00:00.000Z"
- * - "46031" -> idem
- * - "10/1/2026" -> ISO si parsea
- */
-function toISODateFromSheets(value: unknown): string {
+function toYMDFromSheets(value: unknown): string {
   if (value == null) return "";
 
-  // Si viene como número (UNFORMATTED_VALUE)
   if (typeof value === "number" && Number.isFinite(value)) {
-    return sheetsSerialToDate(value).toISOString();
+    return sheetsSerialToYMD(value);
   }
 
   const s = toStr(value);
   if (!s) return "";
 
-  // Si viene como string numérico: "46031"
   if (/^\d+(\.\d+)?$/.test(s)) {
     const n = Number(s);
-    if (Number.isFinite(n)) return sheetsSerialToDate(n).toISOString();
+    if (Number.isFinite(n)) return sheetsSerialToYMD(n);
   }
 
-  // Si viene como fecha ya parseable
-  const d = new Date(s);
-  if (!Number.isNaN(d.getTime())) return d.toISOString();
+  // Si ya viene en algo tipo "2026-01-10" lo dejamos
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
 
-  // fallback: devuélvelo como texto (frontend lo mostrará tal cual)
+  // Fallback: intentar parsear y devolver Y-M-D en UTC
+  const d = new Date(s);
+  if (!Number.isNaN(d.getTime())) {
+    const y = d.getUTCFullYear();
+    const m = String(d.getUTCMonth() + 1).padStart(2, "0");
+    const day = String(d.getUTCDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  }
+
   return s;
 }
+
 
 export async function GET(req: Request) {
   try {
@@ -107,7 +112,7 @@ export async function GET(req: Request) {
           cliente: toStr(r[3]),
           oc: toStr(r[5]),
           // ✅ AQUÍ ESTÁ EL FIX:
-          fechaRequerida: toISODateFromSheets(r[15]),
+          fechaRequerida: toYMDFromSheets(r[15]),
           estadoPlaneacion: estadoPedido,
         });
       }

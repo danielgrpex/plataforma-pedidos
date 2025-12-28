@@ -21,21 +21,38 @@ type PedidoRow = {
 function formatFechaColombia(value?: string) {
   if (!value) return "—";
 
-  // Si viene ISO (ej: 2026-01-10T00:00:00.000Z)
-  const d = new Date(value);
-  if (!Number.isNaN(d.getTime())) {
-    const day = d.getDate().toString().padStart(2, "0");
-    const month = d
+  // ✅ Si viene YYYY-MM-DD (sin zona)
+  const m = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (m) {
+    const y = Number(m[1]);
+    const mo = Number(m[2]); // 1-12
+    const d = Number(m[3]);
+
+    const date = new Date(y, mo - 1, d); // ✅ local, sin corrimientos
+    const day = String(date.getDate()).padStart(2, "0");
+    const month = date
       .toLocaleDateString("es-CO", { month: "short" })
       .replace(".", "")
       .replace(/^\w/, (c) => c.toUpperCase());
-    const year = d.getFullYear();
+    const year = date.getFullYear();
     return `${day}-${month}-${year}`;
   }
 
-  // fallback
+  // fallback por si llega ISO u otro
+  const d2 = new Date(value);
+  if (!Number.isNaN(d2.getTime())) {
+    const day = String(d2.getDate()).padStart(2, "0");
+    const month = d2
+      .toLocaleDateString("es-CO", { month: "short" })
+      .replace(".", "")
+      .replace(/^\w/, (c) => c.toUpperCase());
+    const year = d2.getFullYear();
+    return `${day}-${month}-${year}`;
+  }
+
   return value;
 }
+
 
 export default function PlaneacionListadoPage() {
   const [items, setItems] = useState<PedidoRow[]>([]);
