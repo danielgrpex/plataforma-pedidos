@@ -1,6 +1,8 @@
+//app/comercial/nuevo/page.tsx
+// app/comercial/nuevo/page.tsx
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 type Catalogos = {
@@ -17,10 +19,10 @@ type ItemForm = {
   referencia: string;
   color: string;
   ancho: string;
-  largo: string;
+  largo: string; // texto para permitir coma
   cantidad: string; // entero como string para input controlado
   acabados: string[];
-  precioUnitario: string;
+  precioUnitario: string; // texto para permitir coma
 };
 
 const emptyCats: Catalogos = {
@@ -33,6 +35,62 @@ const emptyCats: Catalogos = {
 };
 
 const uid = () => "r_" + Math.random().toString(36).slice(2, 9);
+
+/**
+ * Convierte entradas tipo:
+ *  - "0,998" -> 0.998
+ *  - "0.998" -> 0.998
+ *  - "9.258,50" -> 9258.5
+ *  - "9258,50" -> 9258.5
+ */
+function parseDecimalAnyLocale(v: string): number {
+  let s = String(v ?? "").trim();
+  if (!s) return NaN;
+
+  // Quita espacios
+  s = s.replace(/\s|\u00A0/g, "");
+
+  const hasComma = s.includes(",");
+  const hasDot = s.includes(".");
+
+  // Caso miles+decimal: 9.258,50
+  if (hasComma && hasDot) {
+    s = s.replace(/\./g, ""); // quita separador de miles
+    s = s.replace(/,/g, "."); // decimal a punto
+  } else if (hasComma) {
+    s = s.replace(/,/g, ".");
+  }
+
+  const n = Number(s);
+  return Number.isFinite(n) ? n : NaN;
+}
+
+/** Para enviar a Sheets en formato con coma decimal */
+function toSheetsCommaDecimal(v: string): string {
+  const s = String(v ?? "").trim();
+  if (!s) return "";
+  // si ya trae coma, listo
+  if (s.includes(",")) return s;
+  // si trae punto, lo pasamos a coma
+  return s.replace(/\./g, ",");
+}
+
+/** Permite solo números + coma/punto */
+function sanitizeDecimalInput(raw: string): string {
+  let s = raw.replace(/[^\d.,]/g, "");
+
+  // deja máximo una coma y un punto (si el usuario se enreda)
+  const firstComma = s.indexOf(",");
+  if (firstComma !== -1) {
+    s = s.slice(0, firstComma + 1) + s.slice(firstComma + 1).replace(/,/g, "");
+  }
+  const firstDot = s.indexOf(".");
+  if (firstDot !== -1) {
+    s = s.slice(0, firstDot + 1) + s.slice(firstDot + 1).replace(/\./g, "");
+  }
+
+  return s;
+}
 
 export default function NuevoPedidoPage() {
   const router = useRouter();
@@ -61,6 +119,7 @@ export default function NuevoPedidoPage() {
   ]);
 
   const [ocFile, setOcFile] = useState<File | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState("");
@@ -148,6 +207,7 @@ export default function NuevoPedidoPage() {
 
   const validarItems = () => {
     if (!items.length) return "Debes agregar al menos un producto.";
+
     for (let i = 0; i < items.length; i++) {
       const it = items[i];
       const n = i + 1;
@@ -156,7 +216,9 @@ export default function NuevoPedidoPage() {
       if (!it.color.trim()) return `Color obligatorio en producto ${n}`;
       if (!it.ancho.trim()) return `Ancho obligatorio en producto ${n}`;
 
-      if (!(Number(it.largo) > 0)) return `Largo (m) debe ser > 0 en producto ${n}`;
+      // ✅ LARGO: soporta coma/punto
+      const largoNum = parseDecimalAnyLocale(it.largo);
+      if (!(largoNum > 0)) return `Largo (m) producto ${n} debe ser un número mayor a 0.`;
 
       // Cantidad: entero > 0
       const qty = Number(it.cantidad);
@@ -164,51 +226,72 @@ export default function NuevoPedidoPage() {
       if (!Number.isInteger(qty))
         return `Cantidad (und) debe ser un número entero en producto ${n}`;
 
-      if (!(Number(it.precioUnitario) > 0))
-        return `Precio unitario debe ser > 0 en producto ${n}`;
+      // ✅ PRECIO: soporta coma/punto
+      const precioNum = parseDecimalAnyLocale(it.precioUnitario);
+      if (!(precioNum > 0)) return `Precio unitario debe ser > 0 en producto ${n}`;
     }
+
     return "";
   };
 
   // ✅ Upload PDF al backend (FormData) y devuelve pdfPath
-async function uploadPdfAndGetPath(
-  cliente: string,
-  oc: string,
-  file: File
-): Promise<string> {
-  const formData = new FormData();
-  formData.append("cliente", cliente);
-  formData.append("oc", oc);
-  formData.append("file", file);
+  async function uploadPdfAndGetPath(
+    cliente: string,
+    oc: string,
+    file: File
+  ): Promise<string> {
+    const formData = new FormData();
+    formData.append("cliente", cliente);
+    formData.append("oc", oc);
+    formData.append("file", file);
 
-  const res = await fetch("/api/comercial/pedidos/upload-url", {
-    method: "POST",
-    body: formData, // 🚫 NO headers
-  });
+    const res = await fetch("/api/comercial/pedidos/upload-url", {
+      method: "POST",
+      body: formData, // 🚫 NO headers
+    });
 
-  if (!res.ok) {
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(text || "Error subiendo PDF");
+    }
+
     const text = await res.text();
-    throw new Error(text || "Error subiendo PDF");
+    if (!text) throw new Error("Respuesta vacía del servidor al subir PDF");
+
+    const json = JSON.parse(text);
+
+    if (!json.success || !json.pdfPath) {
+      throw new Error(json.message || "Respuesta inválida del servidor");
+    }
+
+    return json.pdfPath;
   }
 
-  // 👇 CLAVE: aseguramos que SÍ haya JSON
-  const text = await res.text();
+  const resetForm = () => {
+    setCliente("");
+    setDireccion("");
+    setOc("");
+    setFechaReq("");
+    setAsesor("");
+    setObs("");
 
-  if (!text) {
-    throw new Error("Respuesta vacía del servidor al subir PDF");
-  }
+    setItems([
+      {
+        id: uid(),
+        referencia: "",
+        color: "",
+        ancho: "",
+        largo: "",
+        cantidad: "",
+        acabados: [],
+        precioUnitario: "",
+      },
+    ]);
 
-  const json = JSON.parse(text);
-
-  if (!json.success || !json.pdfPath) {
-    throw new Error(json.message || "Respuesta inválida del servidor");
-  }
-
-  return json.pdfPath;
-}
-
-
-
+    // ✅ limpiar archivo adjunto
+    setOcFile(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
 
   // === Submit ===
   const onSubmit = async (e: React.FormEvent) => {
@@ -217,21 +300,12 @@ async function uploadPdfAndGetPath(
     setMsg("");
 
     const errCab = validarCabecera();
-    if (errCab) {
-      setErr(errCab);
-      return;
-    }
+    if (errCab) return setErr(errCab);
 
     const errItems = validarItems();
-    if (errItems) {
-      setErr(errItems);
-      return;
-    }
+    if (errItems) return setErr(errItems);
 
-    if (!ocFile) {
-      setErr("Debes adjuntar el PDF de la OC/cotización.");
-      return;
-    }
+    if (!ocFile) return setErr("Debes adjuntar el PDF de la OC/cotización.");
 
     try {
       setSaving(true);
@@ -261,12 +335,14 @@ async function uploadPdfAndGetPath(
           referencia: it.referencia.trim(),
           color: it.color.trim(),
           ancho: it.ancho.trim(),
-          largo: it.largo.trim(),
+          // ✅ mandamos con coma para Sheets
+          largo: toSheetsCommaDecimal(it.largo.trim()),
           cantidad: it.cantidad.trim(),
           acabados: it.acabados,
-          precioUnitario: it.precioUnitario.trim(),
+          // ✅ mandamos con coma para Sheets
+          precioUnitario: toSheetsCommaDecimal(it.precioUnitario.trim()),
         })),
-        pdfPath, // ✅ clave
+        pdfPath,
       };
 
       const res = await fetch("/api/comercial/pedidos", {
@@ -278,30 +354,12 @@ async function uploadPdfAndGetPath(
       const json = await res.json().catch(() => null);
 
       if (!res.ok || !json?.success) {
-        throw new Error(json?.message || (await res.text()) || "Error al guardar pedido");
+        throw new Error(
+          json?.message || (await res.text()) || "Error al guardar pedido"
+        );
       }
 
-      // Reset básico
-      setCliente("");
-      setDireccion("");
-      setOc("");
-      setFechaReq("");
-      setAsesor("");
-      setObs("");
-      setOcFile(null);
-      setItems([
-        {
-          id: uid(),
-          referencia: "",
-          color: "",
-          ancho: "",
-          largo: "",
-          cantidad: "",
-          acabados: [],
-          precioUnitario: "",
-        },
-      ]);
-
+      resetForm();
       setMsg("✅ Pedido guardado correctamente.");
     } catch (e: any) {
       console.error(e);
@@ -398,17 +456,44 @@ async function uploadPdfAndGetPath(
               </select>
             </div>
 
+            {/* ✅ Archivo bonito + reseteable */}
             <div className="md:col-span-2">
-              <label className="block text-sm font-medium mb-1">
+              <label className="block text-sm font-medium mb-2">
                 PDF OC/Cotización (obligatorio)
               </label>
+
               <input
+                ref={fileInputRef}
+                id="ocFile"
                 type="file"
                 accept="application/pdf"
                 onChange={(e) => setOcFile(e.target.files?.[0] || null)}
-                className="text-sm"
+                className="hidden"
               />
-              <p className="text-xs text-slate-500 mt-1">
+
+              <div className="flex flex-wrap items-center gap-3">
+                <label
+                  htmlFor="ocFile"
+                  className="inline-flex cursor-pointer items-center justify-center rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  Seleccionar archivo
+                </label>
+
+                <span className="text-sm text-slate-600">
+                  {ocFile ? (
+                    <span className="inline-flex items-center gap-2">
+                      <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700">
+                        PDF
+                      </span>
+                      <span className="max-w-[420px] truncate">{ocFile.name}</span>
+                    </span>
+                  ) : (
+                    <span className="text-slate-400">Ningún archivo seleccionado</span>
+                  )}
+                </span>
+              </div>
+
+              <p className="text-xs text-slate-500 mt-2">
                 Sube solo 1 PDF obligatorio.
               </p>
             </div>
@@ -514,17 +599,24 @@ async function uploadPdfAndGetPath(
                     </select>
                   </div>
 
+                  {/* ✅ Largo: texto para permitir coma */}
                   <div>
                     <label className="block text-xs font-medium mb-1">
                       Largo (m)
                     </label>
                     <input
-                      type="number"
-                      step="0.001"
+                      type="text"
+                      inputMode="decimal"
+                      placeholder="Ej: 0,998"
                       className="w-full rounded-xl border border-slate-300 px-3 py-2 text-xs"
                       value={it.largo}
-                      onChange={(e) => updateItem(it.id, { largo: e.target.value })}
+                      onChange={(e) =>
+                        updateItem(it.id, { largo: sanitizeDecimalInput(e.target.value) })
+                      }
                     />
+                    <p className="mt-1 text-[11px] text-slate-500">
+                      Usa coma para decimales (ej: 0,992)
+                    </p>
                   </div>
 
                   <div>
@@ -547,6 +639,7 @@ async function uploadPdfAndGetPath(
                     />
                   </div>
 
+                  {/* ✅ Precio: texto para permitir coma */}
                   <div>
                     <label className="block text-xs font-medium mb-1">
                       Precio unitario
@@ -556,18 +649,20 @@ async function uploadPdfAndGetPath(
                         $ COP
                       </span>
                       <input
-                        type="number"
-                        step="0.01"
-                        min={0}
+                        type="text"
+                        inputMode="decimal"
+                        placeholder="Ej: 5500,50"
                         className="w-full rounded-xl border border-slate-300 px-3 py-2 pl-14 text-xs"
                         value={it.precioUnitario}
                         onChange={(e) =>
-                          updateItem(it.id, { precioUnitario: e.target.value })
+                          updateItem(it.id, {
+                            precioUnitario: sanitizeDecimalInput(e.target.value),
+                          })
                         }
                       />
                     </div>
                     <p className="mt-1 text-[11px] text-slate-500">
-                      Valor en pesos colombianos (COP)
+                      Usa coma para decimales (ej: 9258,50)
                     </p>
                   </div>
 

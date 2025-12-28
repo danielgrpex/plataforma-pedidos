@@ -6,7 +6,7 @@ import { appendBasePrincipalRows } from "@/lib/google/googleSheets";
 ============================ */
 
 export type GuardarPedidoPayloadLegacy = {
-  rows: string[][];
+  rows: any[][];
 };
 
 export type PedidoCabecera = {
@@ -23,11 +23,11 @@ export type PedidoCabecera = {
 export type PedidoItem = {
   referencia: string;
   color: string;
-  ancho: string;
-  largo: string;
-  cantidad: string;
+  ancho: string | number;        // ✅ ahora soporta number
+  largo: string | number;        // ✅ ahora soporta number
+  cantidad: string | number;     // ✅ ahora soporta number
   acabados: string[];
-  precioUnitario: string;
+  precioUnitario: string | number; // ✅ ahora soporta number
 };
 
 export type GuardarPedidoPayloadNuevo = {
@@ -35,7 +35,7 @@ export type GuardarPedidoPayloadNuevo = {
   items: PedidoItem[];
 
   /**
-   * ✅ Ahora recibimos el path del PDF ya subido a Supabase Storage
+   * ✅ Path del PDF subido a Supabase Storage
    * Ej: "Cliente/OC/OC_2025-12-16T....pdf"
    */
   pdfPath?: string;
@@ -62,23 +62,58 @@ function toStr(v: unknown) {
   return String(v ?? "").trim();
 }
 
-function assertPositiveNumber(value: string, label: string) {
-  const n = Number(value);
+/**
+ * ✅ Convierte "0,998" o "0.998" o "1.234,56" a number válido
+ */
+function parseDecimalAnyLocale(v: unknown): number {
+  if (typeof v === "number") return Number.isFinite(v) ? v : NaN;
+
+  let s = String(v ?? "").trim();
+  if (!s) return NaN;
+
+  // quita espacios (incluyendo NBSP)
+  s = s.replace(/\s|\u00A0/g, "");
+
+  const hasComma = s.includes(",");
+  const hasDot = s.includes(".");
+
+  // Caso "1.234,56" => miles "." y decimal ","
+  if (hasComma && hasDot) {
+    s = s.replace(/\./g, "");
+    s = s.replace(/,/g, ".");
+  } else if (hasComma) {
+    // Caso "0,998" => decimal ","
+    s = s.replace(/,/g, ".");
+  }
+
+  const n = Number(s);
+  return Number.isFinite(n) ? n : NaN;
+}
+
+function assertPositiveNumber(value: unknown, label: string) {
+  const n = parseDecimalAnyLocale(value);
   if (!Number.isFinite(n) || n <= 0) {
     throw new Error(`${label} debe ser un número mayor a 0.`);
   }
   return n;
 }
 
-function assertPositiveInteger(value: string, label: string) {
-  const n = Number(value);
+function assertPositiveInteger(value: unknown, label: string) {
+  const n = typeof value === "number" ? value : Number(String(value ?? "").trim());
   if (!Number.isFinite(n) || n <= 0 || !Number.isInteger(n)) {
     throw new Error(`${label} debe ser un número entero mayor a 0.`);
   }
   return n;
 }
 
+function formatNumberForDisplayComma(n: number, maxDecimals = 3) {
+  // Ej: 0.998 => "0,998"
+  const s = n.toFixed(maxDecimals).replace(/\.?0+$/, "");
+  return s.replace(".", ",");
+}
+
 function formatNumber(n: number, decimals = 1) {
+  // usado para cantidadM; lo dejamos “limpio”
   return n.toFixed(decimals).replace(/\.?0+$/, "");
 }
 
@@ -90,7 +125,7 @@ function formatNumber(n: number, decimals = 1) {
 function buildRowsFromNuevo(
   payload: GuardarPedidoPayloadNuevo,
   pdfPath: string
-): string[][] {
+): any[][] {
   const cab = payload.cabecera ?? ({} as PedidoCabecera);
   const items = payload.items ?? [];
 
@@ -113,15 +148,19 @@ function buildRowsFromNuevo(
     throw new Error("Debes registrar al menos un producto.");
   }
 
+  const pdf = toStr(pdfPath);
+  if (!pdf) throw new Error("Falta pdfPath (primero sube el PDF).");
+
   return items.map((it, idx) => {
     const n = idx + 1;
 
     const referencia = toStr(it.referencia);
     const color = toStr(it.color);
-    const ancho = toStr(it.ancho);
-    const largoStr = toStr(it.largo);
-    const cantidadStr = toStr(it.cantidad);
-    const precioStr = toStr(it.precioUnitario);
+
+    const anchoNum = assertPositiveNumber(it.ancho, `Ancho (cm) producto ${n}`);
+    const largoNum = assertPositiveNumber(it.largo, `Largo (m) producto ${n}`);
+    const cantidadUnd = assertPositiveInteger(it.cantidad, `Cantidad (und) producto ${n}`);
+    const precioNum = assertPositiveNumber(it.precioUnitario, `Precio unitario producto ${n}`);
 
     const acabadosArr = Array.isArray(it.acabados)
       ? it.acabados.map(toStr).filter(Boolean)
@@ -129,27 +168,22 @@ function buildRowsFromNuevo(
 
     if (!referencia) throw new Error(`Referencia obligatoria (producto ${n}).`);
     if (!color) throw new Error(`Color obligatorio (producto ${n}).`);
-    if (!ancho) throw new Error(`Ancho obligatorio (producto ${n}).`);
 
-    const largo = assertPositiveNumber(largoStr, `Largo (m) producto ${n}`);
-    const cantidadUnd = assertPositiveInteger(
-      cantidadStr,
-      `Cantidad (und) producto ${n}`
-    );
-    assertPositiveNumber(precioStr, `Precio unitario producto ${n}`);
-
-    const cantidadM = largo * cantidadUnd;
+    const cantidadM = largoNum * cantidadUnd;
 
     // Producto = Referencia + Color + Ancho + Largo + Acabados
     const producto = [
       referencia,
       color,
-      `${ancho} cm`,
-      `${largoStr} m`,
+      `${formatNumberForDisplayComma(anchoNum, 3)} cm`,
+      `${formatNumberForDisplayComma(largoNum, 3)} m`,
       acabadosArr.length ? acabadosArr.join(", ") : "Sin acabados",
     ].join(" | ");
 
-    const row: string[] = [
+    // ✅ IMPORTANTE:
+    // Para que Sheets lo lea como NÚMERO independientemente de coma/punto,
+    // enviamos numbers en columnas numéricas.
+    const row: any[] = [
       "", // 1 Consecutivo
       fechaSolicitud, // 2 Fecha Solicitud
       asesor, // 3 Asesor
@@ -159,12 +193,14 @@ function buildRowsFromNuevo(
       producto, // 7 Producto
       referencia, // 8 Referencia
       color, // 9 Color
-      ancho, // 10 Ancho
-      largoStr, // 11 Largo
-      cantidadStr, // 12 Cantidad und
-      formatNumber(cantidadM), // 13 Cantidad m
+
+      anchoNum, // 10 Ancho (NUM)
+      largoNum, // 11 Largo (NUM)
+      cantidadUnd, // 12 Cantidad und (NUM)
+      Number(formatNumber(cantidadM, 1)), // 13 Cantidad m (NUM)
       acabadosArr.join(", "), // 14 Acabados
-      precioStr, // 15 Precio unitario
+      precioNum, // 15 Precio unitario (NUM)
+
       fechaRequerida, // 16 Fecha requerida
       obs, // 17 Observaciones comerciales
       "", // 18 Clasificación sugerida
@@ -185,14 +221,12 @@ function buildRowsFromNuevo(
       "", // 33 Remisión
       "", // 34 Fecha entrega real cliente
       "", // 35 Obs despacho
-      pdfPath, // 36 ✅ PDF_PATH (Supabase)
+      pdf, // 36 ✅ PDF_PATH (Supabase)
       created_by, // 37 created_by
     ];
 
     if (row.length !== 37) {
-      throw new Error(
-        `Fila inválida: tiene ${row.length} columnas (deben ser 37).`
-      );
+      throw new Error(`Fila inválida: tiene ${row.length} columnas (deben ser 37).`);
     }
 
     return row;
@@ -219,10 +253,9 @@ export async function guardarPedidoNode(
     // ✅ Nuevo
     const payload = data as GuardarPedidoPayloadNuevo;
 
-    // pdfPath viene desde el frontend (ya subido a Supabase con signed upload)
     const pdfPath = toStr(payload.pdfPath);
-
     const rows = buildRowsFromNuevo(payload, pdfPath);
+
     await appendBasePrincipalRows(rows);
 
     return { success: true, message: "Pedido guardado correctamente." };
@@ -234,4 +267,3 @@ export async function guardarPedidoNode(
     };
   }
 }
-
