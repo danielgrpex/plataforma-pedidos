@@ -4,6 +4,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 
 type Catalogos = {
   clientes: string[];
@@ -94,6 +95,8 @@ function sanitizeDecimalInput(raw: string): string {
 
 export default function NuevoPedidoPage() {
   const router = useRouter();
+  const { data: session } = useSession();
+  const createdBy = String(session?.user?.email ?? "").trim();
 
   const [cats, setCats] = useState<Catalogos>(emptyCats);
   const [loadingCats, setLoadingCats] = useState(true);
@@ -193,6 +196,7 @@ export default function NuevoPedidoPage() {
 
   // === Validaciones rápidas frontend (el backend igual valida) ===
   const validarCabecera = () => {
+    if (!createdBy) return "No se pudo identificar el usuario logueado. Cierra sesión y entra de nuevo.";
     if (!cliente.trim()) return 'El campo "Cliente" es obligatorio.';
     if (!asesor.trim()) return 'El campo "Asesor comercial" es obligatorio.';
     if (!direccion.trim())
@@ -330,6 +334,7 @@ export default function NuevoPedidoPage() {
           asesor: asesor.trim(),
           obs: obs.trim(),
           fechaSolicitud: new Date().toISOString(),
+          created_by: createdBy, // ✅ correo del usuario logueado
         },
         items: items.map((it) => ({
           referencia: it.referencia.trim(),
