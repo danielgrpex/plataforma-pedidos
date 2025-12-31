@@ -133,7 +133,8 @@ export default function NuevoPedidoPage() {
     const load = async () => {
       try {
         setLoadingCats(true);
-        const res = await fetch("/api/comercial/catalogos");
+        // cache no-store: siempre pide al server (evita catálogos pegados)
+        const res = await fetch("/api/comercial/catalogos", { cache: "no-store" });
         if (!res.ok) throw new Error(await res.text());
         const data = (await res.json()) as Catalogos;
         setCats(data);
@@ -194,9 +195,28 @@ export default function NuevoPedidoPage() {
     );
   };
 
+  // ✅ NUEVO: duplicar producto tal cual (con ID nuevo) y lo inserta debajo
+  const duplicateItem = (id: string) => {
+    setItems((prev) => {
+      const idx = prev.findIndex((it) => it.id === id);
+      if (idx === -1) return prev;
+
+      const original = prev[idx];
+      const duplicated: ItemForm = {
+        ...original,
+        id: uid(), // 🔑 nuevo id
+      };
+
+      const copy = [...prev];
+      copy.splice(idx + 1, 0, duplicated);
+      return copy;
+    });
+  };
+
   // === Validaciones rápidas frontend (el backend igual valida) ===
   const validarCabecera = () => {
-    if (!createdBy) return "No se pudo identificar el usuario logueado. Cierra sesión y entra de nuevo.";
+    if (!createdBy)
+      return "No se pudo identificar el usuario logueado. Cierra sesión y entra de nuevo.";
     if (!cliente.trim()) return 'El campo "Cliente" es obligatorio.';
     if (!asesor.trim()) return 'El campo "Asesor comercial" es obligatorio.';
     if (!direccion.trim())
@@ -222,7 +242,8 @@ export default function NuevoPedidoPage() {
 
       // ✅ LARGO: soporta coma/punto
       const largoNum = parseDecimalAnyLocale(it.largo);
-      if (!(largoNum > 0)) return `Largo (m) producto ${n} debe ser un número mayor a 0.`;
+      if (!(largoNum > 0))
+        return `Largo (m) producto ${n} debe ser un número mayor a 0.`;
 
       // Cantidad: entero > 0
       const qty = Number(it.cantidad);
@@ -232,7 +253,8 @@ export default function NuevoPedidoPage() {
 
       // ✅ PRECIO: soporta coma/punto
       const precioNum = parseDecimalAnyLocale(it.precioUnitario);
-      if (!(precioNum > 0)) return `Precio unitario debe ser > 0 en producto ${n}`;
+      if (!(precioNum > 0))
+        return `Precio unitario debe ser > 0 en producto ${n}`;
     }
 
     return "";
@@ -316,11 +338,7 @@ export default function NuevoPedidoPage() {
 
       // 1️⃣ Subir PDF y obtener path
       setMsg("Subiendo PDF…");
-      const pdfPath = await uploadPdfAndGetPath(
-        cliente.trim(),
-        oc.trim(),
-        ocFile
-      );
+      const pdfPath = await uploadPdfAndGetPath(cliente.trim(), oc.trim(), ocFile);
 
       // 2️⃣ Guardar pedido (Sheets) con pdfPath
       setMsg("Guardando pedido…");
@@ -359,9 +377,7 @@ export default function NuevoPedidoPage() {
       const json = await res.json().catch(() => null);
 
       if (!res.ok || !json?.success) {
-        throw new Error(
-          json?.message || (await res.text()) || "Error al guardar pedido"
-        );
+        throw new Error(json?.message || (await res.text()) || "Error al guardar pedido");
       }
 
       resetForm();
@@ -493,7 +509,9 @@ export default function NuevoPedidoPage() {
                       <span className="max-w-[420px] truncate">{ocFile.name}</span>
                     </span>
                   ) : (
-                    <span className="text-slate-400">Ningún archivo seleccionado</span>
+                    <span className="text-slate-400">
+                      Ningún archivo seleccionado
+                    </span>
                   )}
                 </span>
               </div>
@@ -537,15 +555,28 @@ export default function NuevoPedidoPage() {
               >
                 <div className="flex items-center justify-between text-xs text-slate-500 mb-1">
                   <span>Producto #{index + 1}</span>
-                  {items.length > 1 && (
+
+                  <div className="flex items-center gap-3">
+                    {/* ✅ NUEVO: Duplicar */}
                     <button
                       type="button"
-                      className="text-red-500 hover:text-red-600"
-                      onClick={() => removeItem(it.id)}
+                      className="text-emerald-600 hover:text-emerald-700"
+                      onClick={() => duplicateItem(it.id)}
+                      title="Duplicar producto"
                     >
-                      Eliminar
+                      Duplicar
                     </button>
-                  )}
+
+                    {items.length > 1 && (
+                      <button
+                        type="button"
+                        className="text-red-500 hover:text-red-600"
+                        onClick={() => removeItem(it.id)}
+                      >
+                        Eliminar
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 <div className="grid gap-3 md:grid-cols-2">
@@ -569,13 +600,13 @@ export default function NuevoPedidoPage() {
                   </div>
 
                   <div>
-                    <label className="block text-xs font-medium mb-1">Color</label>
+                    <label className="block text-xs font-medium mb-1">
+                      Color
+                    </label>
                     <select
                       className="w-full rounded-xl border border-slate-300 px-3 py-2 text-xs"
                       value={it.color}
-                      onChange={(e) =>
-                        updateItem(it.id, { color: e.target.value })
-                      }
+                      onChange={(e) => updateItem(it.id, { color: e.target.value })}
                       disabled={loadingCats}
                     >
                       <option value="">Seleccione</option>
@@ -592,9 +623,7 @@ export default function NuevoPedidoPage() {
                     <select
                       className="w-full rounded-xl border border-slate-300 px-3 py-2 text-xs"
                       value={it.ancho}
-                      onChange={(e) =>
-                        updateItem(it.id, { ancho: e.target.value })
-                      }
+                      onChange={(e) => updateItem(it.id, { ancho: e.target.value })}
                       disabled={loadingCats}
                     >
                       <option value="">Seleccione</option>
@@ -616,7 +645,9 @@ export default function NuevoPedidoPage() {
                       className="w-full rounded-xl border border-slate-300 px-3 py-2 text-xs"
                       value={it.largo}
                       onChange={(e) =>
-                        updateItem(it.id, { largo: sanitizeDecimalInput(e.target.value) })
+                        updateItem(it.id, {
+                          largo: sanitizeDecimalInput(e.target.value),
+                        })
                       }
                     />
                     <p className="mt-1 text-[11px] text-slate-500">
@@ -637,9 +668,7 @@ export default function NuevoPedidoPage() {
                       value={it.cantidad}
                       onChange={(e) => {
                         const value = e.target.value;
-                        if (/^\d*$/.test(value)) {
-                          updateItem(it.id, { cantidad: value });
-                        }
+                        if (/^\d*$/.test(value)) updateItem(it.id, { cantidad: value });
                       }}
                     />
                   </div>
