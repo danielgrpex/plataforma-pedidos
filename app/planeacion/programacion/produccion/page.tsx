@@ -1,13 +1,69 @@
-// app/planeacion/programacion/produccion/page.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 type Linea = "Linea 1" | "Linea 2" | "Linea 3" | "Linea 4" | "Linea 5" | "Linea 6";
-
 const LINEAS: Linea[] = ["Linea 1", "Linea 2", "Linea 3", "Linea 4", "Linea 5", "Linea 6"];
 
+/** =========================
+ *  GENERAR OPE (pendientes)
+ *  ========================= */
+type SolicitudProdPendiente = {
+  solicitudProdId: string;
+  pedidoKey: string;
+  rowIndexPedido: string; // texto desde Sheets
+  productoKey: string;
+  cantidadUND: string;
+  estado: string; // Pendiente
+  fechaCreacion?: string;
+  fechaUltActualizacion?: string;
+  usuario?: string;
+  OPE?: string;
+};
+
+function toNumberStr(v?: string) {
+  if (!v) return 0;
+  const s = String(v).trim().replace(/\s/g, "").replace(/\./g, "").replace(",", ".");
+  const n = Number(s);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function formatFechaColombia(value?: string) {
+  if (!value) return "—";
+
+  const m = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (m) {
+    const y = Number(m[1]);
+    const mo = Number(m[2]);
+    const d = Number(m[3]);
+    const date = new Date(y, mo - 1, d);
+    const day = String(date.getDate()).padStart(2, "0");
+    const month = date
+      .toLocaleDateString("es-CO", { month: "short" })
+      .replace(".", "")
+      .replace(/^\w/, (c) => c.toUpperCase());
+    const year = date.getFullYear();
+    return `${day}-${month}-${year}`;
+  }
+
+  const d2 = new Date(value);
+  if (!Number.isNaN(d2.getTime())) {
+    const day = String(d2.getDate()).padStart(2, "0");
+    const month = d2
+      .toLocaleDateString("es-CO", { month: "short" })
+      .replace(".", "")
+      .replace(/^\w/, (c) => c.toUpperCase());
+    const year = d2.getFullYear();
+    return `${day}-${month}-${year}`;
+  }
+
+  return value;
+}
+
+/** =========================
+ *  PRODUCCIÓN (colas)
+ *  ========================= */
 type OpeListItem = {
   ope: string; // "OPE260001"
   items: number;
@@ -56,53 +112,134 @@ function sortByPos(list: ColaItem[]) {
 export default function PlaneacionProgramacionProduccionPage() {
   const router = useRouter();
 
-  const [tab, setTab] = useState<"programar" | "ver">("programar");
+  // ✅ Tabs: Generar OPE / Programar / Ver programación
+  const [tab, setTab] = useState<"generar" | "programar" | "ver">("generar");
 
-  // buscador OPEs (programar)
+  /** =========================
+   *  TAB GENERAR OPE
+   *  ========================= */
+  const [qSol, setQSol] = useState("");
+  const [solItems, setSolItems] = useState<SolicitudProdPendiente[]>([]);
+  const [loadingSol, setLoadingSol] = useState(true);
+  const [errSol, setErrSol] = useState("");
+  const [msgSol, setMsgSol] = useState("");
+  const [creatingOPE, setCreatingOPE] = useState(false);
+  const [selectedSol, setSelectedSol] = useState<Record<string, boolean>>({});
+
+  async function loadSolicitudesPendientes() {
+    setErrSol("");
+    setMsgSol("");
+    setLoadingSol(true);
+
+    try {
+      const url = `/api/planeacion/programacion/solicitudes?estado=Pendiente&q=${encodeURIComponent(
+        qSol.trim()
+      )}`;
+      const res = await fetch(url, { cache: "no-store" });
+      const json = await res.json().catch(() => null);
+
+      if (!res.ok || !json?.success) {
+        throw new Error(json?.message || "No se pudieron cargar las solicitudes.");
+      }
+
+      const list = (json.items || []) as SolicitudProdPendiente[];
+      setSolItems(list);
+
+      // mantener selección solo para ids existentes
+      setSelectedSol((prev) => {
+        const next: Record<string, boolean> = {};
+        const allow = new Set(list.map((x) => x.solicitudProdId));
+        Object.entries(prev).forEach(([id, v]) => {
+          if (allow.has(id) && v) next[id] = true;
+        });
+        return next;
+      });
+    } catch (e: any) {
+      console.error(e);
+      setErrSol(e?.message || "Error cargando solicitudes.");
+      setSolItems([]);
+      setSelectedSol({});
+    } finally {
+      setLoadingSol(false);
+    }
+  }
+
+  const selectedSolIds = useMemo(
+    () => Object.entries(selectedSol).filter(([, v]) => v).map(([k]) => k),
+    [selectedSol]
+  );
+
+  const selectedSolRows = useMemo(() => {
+    const map = new Map(solItems.map((x) => [x.solicitudProdId, x]));
+    return selectedSolIds.map((id) => map.get(id)).filter(Boolean) as SolicitudProdPendiente[];
+  }, [solItems, selectedSolIds]);
+
+  const totalSelectedSolUND = useMemo(
+    () => selectedSolRows.reduce((acc, x) => acc + toNumberStr(x.cantidadUND), 0),
+    [selectedSolRows]
+  );
+
+  const agrupadoPorProducto = useMemo(() => {
+    const m = new Map<string, { productoKey: string; und: number; count: number }>();
+    for (const s of selectedSolRows) {
+      const key = (s.productoKey || "—").trim();
+      const cur = m.get(key) || { productoKey: key, und: 0, count: 0 };
+      cur.und += toNumberStr(s.cantidadUND);
+      cur.count += 1;
+      m.set(key, cur);
+    }
+    return Array.from(m.values()).sort((a, b) => b.und - a.und);
+  }, [selectedSolRows]);
+
+  const allCheckedSol = useMemo(() => {
+    if (!solItems.length) return false;
+    return solItems.every((x) => selectedSol[x.solicitudProdId]);
+  }, [solItems, selectedSol]);
+
+  function toggleAllSol() {
+    if (!solItems.length) return;
+    setSelectedSol((prev) => {
+      const next: Record<string, boolean> = { ...prev };
+      if (allCheckedSol) {
+        solItems.forEach((x) => delete next[x.solicitudProdId]);
+      } else {
+        solItems.forEach((x) => (next[x.solicitudProdId] = true));
+      }
+      return next;
+    });
+  }
+
+  /** =========================
+   *  PRODUCCIÓN: Programar/Ver
+   *  ========================= */
   const [q, setQ] = useState("");
 
-  // lista OPEs programadas (para meter a cola)
   const [opes, setOpes] = useState<OpeListItem[]>([]);
   const [loadingOpes, setLoadingOpes] = useState(true);
   const [errOpes, setErrOpes] = useState<string>("");
 
-  // detalle OPE seleccionada (programar)
   const [selectedOpe, setSelectedOpe] = useState<string>("");
   const [detalle, setDetalle] = useState<OpeDetalle | null>(null);
   const [loadingDetalle, setLoadingDetalle] = useState(false);
   const [errDetalle, setErrDetalle] = useState<string>("");
 
-  // colas actuales (backend)
   const [colas, setColas] = useState<ColasResponse>({});
   const [loadingColas, setLoadingColas] = useState(true);
   const [errColas, setErrColas] = useState<string>("");
 
-  // selección de línea + prioridad (programar)
   const [lineaSel, setLineaSel] = useState<Linea>("Linea 1");
   const [prioMode, setPrioMode] = useState<"inicio" | "final" | "despues">("final");
   const [posDespues, setPosDespues] = useState<number>(1);
 
-  // acción add (programar)
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState<string>("");
 
-  // =========================
-  // VER PROGRAMACIÓN (frontend)
-  // =========================
+  // VER PROGRAMACIÓN
   const [verLineaSel, setVerLineaSel] = useState<Linea>("Linea 1");
-
-  // Copia local para permitir subir/bajar (solo UI, no persistido todavía)
   const [colasLocal, setColasLocal] = useState<ColasResponse>({});
-
-  // Expand/collapse por OPE
   const [openOpe, setOpenOpe] = useState<Record<string, boolean>>({});
-
-  // Cache de detalles por OPE (para ver programación)
   const [detalleCache, setDetalleCache] = useState<
-    Record<
-      string,
-      { loading: boolean; error?: string; detalle?: OpeDetalle }
-    >
+    Record<string, { loading: boolean; error?: string; detalle?: OpeDetalle }>
   >({});
 
   async function loadOpes() {
@@ -128,20 +265,17 @@ export default function PlaneacionProgramacionProduccionPage() {
     setLoadingColas(true);
     setErrColas("");
     try {
-      const res = await fetch(`/api/planeacion/programacion/produccion/colas`, {
-        cache: "no-store",
-      });
+      const res = await fetch(`/api/planeacion/programacion/produccion/colas`, { cache: "no-store" });
       const json = await res.json();
       if (!json?.success) throw new Error(json?.message || "No se pudieron cargar colas.");
       const lineas = (json.lineas || {}) as ColasResponse;
 
-      // Normalizamos y ordenamos
       const normalized: ColasResponse = {};
       for (const l of LINEAS) {
         normalized[l] = sortByPos((lineas[l] || []) as ColaItem[]);
       }
       setColas(normalized);
-      setColasLocal(normalized); // sync a local para reorden UI
+      setColasLocal(normalized);
     } catch (e) {
       setErrColas(e instanceof Error ? e.message : "Error cargando colas.");
       setColas({});
@@ -206,12 +340,12 @@ export default function PlaneacionProgramacionProduccionPage() {
   }
 
   useEffect(() => {
+    loadSolicitudesPendientes();
     loadOpes();
     loadColas();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // cuando cambia la OPE seleccionada (programar)
   useEffect(() => {
     loadDetalle(selectedOpe);
 
@@ -253,7 +387,7 @@ export default function PlaneacionProgramacionProduccionPage() {
     try {
       const payload = {
         ope: selectedOpe,
-        linea: lineaSel, // "Linea 1" .. "Linea 6"
+        linea: lineaSel,
         prioridad:
           prioMode === "inicio"
             ? { mode: "inicio" }
@@ -282,16 +416,54 @@ export default function PlaneacionProgramacionProduccionPage() {
     }
   }
 
-  // =========================
-  // Helpers "Ver programación"
-  // =========================
+  async function crearOPEDesdeSolicitudes() {
+    setErrSol("");
+    setMsgSol("");
+
+    if (!selectedSolIds.length) {
+      setErrSol("Selecciona al menos 1 solicitud.");
+      return;
+    }
+
+    try {
+      setCreatingOPE(true);
+      setMsgSol("Creando OPE…");
+
+      const res = await fetch("/api/planeacion/programacion/ope/crear", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          solicitudProdIds: selectedSolIds,
+          usuario: "planeacion",
+        }),
+      });
+
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.success) {
+        throw new Error(json?.message || "No se pudo crear la OPE.");
+      }
+
+      const ope = String(json.ope || "").trim();
+      setMsgSol(ope ? `✅ OPE creada: ${ope}` : "✅ OPE creada.");
+
+      await Promise.all([loadSolicitudesPendientes(), loadOpes()]);
+      setSelectedSol({});
+    } catch (e: any) {
+      console.error(e);
+      setErrSol(e?.message || "Error creando OPE.");
+    } finally {
+      setCreatingOPE(false);
+      setTimeout(() => setMsgSol(""), 5000);
+    }
+  }
+
+  // ====== Ver programación helpers ======
   const colaVerSel = useMemo(() => {
     const base = colasLocal[verLineaSel] || [];
     return sortByPos(base);
   }, [colasLocal, verLineaSel]);
 
   const undTotalLinea = useMemo(() => {
-    // suma UND de las OPE de esa línea usando cache cuando exista
     let sum = 0;
     for (const x of colaVerSel) {
       const d = detalleCache[x.ope]?.detalle;
@@ -301,12 +473,7 @@ export default function PlaneacionProgramacionProduccionPage() {
   }, [colaVerSel, detalleCache]);
 
   function toggleOpen(ope: string) {
-    setOpenOpe((prev) => {
-      const next = { ...prev, [ope]: !prev[ope] };
-      return next;
-    });
-
-    // si lo abrimos, cargamos detalle
+    setOpenOpe((prev) => ({ ...prev, [ope]: !prev[ope] }));
     const willOpen = !openOpe[ope];
     if (willOpen) ensureDetalleInCache(ope);
   }
@@ -320,7 +487,6 @@ export default function PlaneacionProgramacionProduccionPage() {
       const swapWith = dir === "up" ? idx - 1 : idx + 1;
       if (swapWith < 0 || swapWith >= list.length) return prev;
 
-      // intercambiamos posiciones (solo UI)
       const a = { ...list[idx] };
       const b = { ...list[swapWith] };
 
@@ -348,7 +514,7 @@ export default function PlaneacionProgramacionProduccionPage() {
         <div>
           <h1 className="text-2xl font-semibold">Planeación · Programación · Producción</h1>
           <p className="text-sm text-slate-500">
-            Asigna una <b>OPE</b> a una <b>línea</b> y define su <b>prioridad</b> en la cola.
+            1) Genera OPE → 2) Programa en línea → 3) Ver cola tipo planta.
           </p>
         </div>
 
@@ -363,12 +529,20 @@ export default function PlaneacionProgramacionProduccionPage() {
 
       {/* Tabs */}
       <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <button
             className={`rounded-xl px-4 py-2 text-sm font-medium ${
-              tab === "programar"
-                ? "bg-indigo-600 text-white"
-                : "bg-white text-slate-700 hover:bg-slate-50"
+              tab === "generar" ? "bg-indigo-600 text-white" : "bg-white text-slate-700 hover:bg-slate-50"
+            }`}
+            onClick={() => setTab("generar")}
+            type="button"
+          >
+            Generar OPE
+          </button>
+
+          <button
+            className={`rounded-xl px-4 py-2 text-sm font-medium ${
+              tab === "programar" ? "bg-indigo-600 text-white" : "bg-white text-slate-700 hover:bg-slate-50"
             }`}
             onClick={() => setTab("programar")}
             type="button"
@@ -389,7 +563,190 @@ export default function PlaneacionProgramacionProduccionPage() {
       </section>
 
       {/* ===========================
-          TAB: PROGRAMAR (igual)
+          TAB: GENERAR OPE
+         =========================== */}
+      {tab === "generar" && (
+        <>
+          <section className="mt-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                value={qSol}
+                onChange={(e) => setQSol(e.target.value)}
+                className="w-full md:w-[520px] rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                placeholder="Buscar por pedidoKey, productoKey, estado…"
+              />
+              <button
+                onClick={loadSolicitudesPendientes}
+                className="rounded-xl border border-slate-300 px-4 py-2 text-sm hover:bg-slate-50"
+                disabled={loadingSol}
+                type="button"
+              >
+                {loadingSol ? "Cargando…" : "Buscar"}
+              </button>
+
+              <div className="flex-1" />
+
+              <button
+                onClick={crearOPEDesdeSolicitudes}
+                disabled={creatingOPE || !selectedSolIds.length}
+                className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-60"
+                type="button"
+                title="Crear OPE para las solicitudes seleccionadas"
+              >
+                {creatingOPE ? "Creando…" : `Crear OPE (${selectedSolIds.length})`}
+              </button>
+            </div>
+
+            {(msgSol || errSol) && (
+              <div className="mt-3">
+                {msgSol && <p className="text-xs text-emerald-600">{msgSol}</p>}
+                {errSol && <p className="text-xs text-red-500">{errSol}</p>}
+              </div>
+            )}
+          </section>
+
+          {/* Resumen selección */}
+          <section className="mt-4 grid gap-3 md:grid-cols-2">
+            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="text-sm font-semibold">Selección actual</div>
+              <div className="mt-2 text-sm text-slate-600">
+                Ítems: <b>{selectedSolIds.length}</b>
+              </div>
+              <div className="text-sm text-slate-600">
+                Total UND: <b>{totalSelectedSolUND.toLocaleString("es-CO")}</b>
+              </div>
+              <p className="mt-2 text-xs text-slate-500">
+                Al crear OPE, todos los ítems seleccionados quedan con el mismo consecutivo (ej: <b>OPE260001</b>).
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="text-sm font-semibold">Agrupado por productoKey</div>
+              {selectedSolIds.length === 0 ? (
+                <p className="mt-2 text-sm text-slate-500">Selecciona ítems para ver el resumen.</p>
+              ) : (
+                <div className="mt-2 max-h-[160px] overflow-auto">
+                  <table className="min-w-full text-sm">
+                    <thead className="text-slate-500">
+                      <tr>
+                        <th className="py-1 text-left font-medium">ProductoKey</th>
+                        <th className="py-1 text-right font-medium">UND</th>
+                        <th className="py-1 text-right font-medium">Ítems</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {agrupadoPorProducto.map((x) => (
+                        <tr key={x.productoKey}>
+                          <td className="py-1 pr-3">
+                            <span className="font-mono text-[12px]">{x.productoKey}</span>
+                          </td>
+                          <td className="py-1 text-right font-semibold">{x.und.toLocaleString("es-CO")}</td>
+                          <td className="py-1 text-right">{x.count}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </section>
+
+          {/* Tabla solicitudes */}
+          <section className="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead className="bg-slate-50 text-slate-600">
+                  <tr>
+                    <th className="px-4 py-3 text-left font-medium">
+                      <div className="flex items-center gap-2">
+                        <input type="checkbox" checked={allCheckedSol} onChange={toggleAllSol} disabled={!solItems.length} />
+                        <span>Sel</span>
+                      </div>
+                    </th>
+                    <th className="px-4 py-3 text-left font-medium">Solicitud</th>
+                    <th className="px-4 py-3 text-left font-medium">Pedido</th>
+                    <th className="px-4 py-3 text-left font-medium">ProductoKey</th>
+                    <th className="px-4 py-3 text-right font-medium">UND</th>
+                    <th className="px-4 py-3 text-left font-medium">Estado</th>
+                    <th className="px-4 py-3 text-left font-medium">Actualización</th>
+                  </tr>
+                </thead>
+
+                <tbody className="divide-y divide-slate-100">
+                  {loadingSol && (
+                    <tr>
+                      <td colSpan={7} className="px-4 py-4 text-slate-500">
+                        Cargando…
+                      </td>
+                    </tr>
+                  )}
+
+                  {!loadingSol && solItems.length === 0 && (
+                    <tr>
+                      <td colSpan={7} className="px-4 py-4 text-slate-500">
+                        No hay solicitudes de producción en estado <b>Pendiente</b>.
+                      </td>
+                    </tr>
+                  )}
+
+                  {!loadingSol &&
+                    solItems.map((s) => (
+                      <tr key={s.solicitudProdId} className="hover:bg-slate-50 align-top">
+                        <td className="px-4 py-3">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(selectedSol[s.solicitudProdId])}
+                            onChange={(e) =>
+                              setSelectedSol((prev) => ({
+                                ...prev,
+                                [s.solicitudProdId]: e.target.checked,
+                              }))
+                            }
+                          />
+                        </td>
+
+                        <td className="px-4 py-3">
+                          <div className="font-medium">{s.solicitudProdId}</div>
+                          <div className="text-xs text-slate-400">
+                            row Pedido: <b>{s.rowIndexPedido || "—"}</b>
+                          </div>
+                        </td>
+
+                        <td className="px-4 py-3">
+                          <div className="font-medium break-all">{s.pedidoKey}</div>
+                        </td>
+
+                        <td className="px-4 py-3">
+                          <span className="font-mono text-[12px]">{s.productoKey || "—"}</span>
+                        </td>
+
+                        <td className="px-4 py-3 text-right font-semibold">
+                          {toNumberStr(s.cantidadUND).toLocaleString("es-CO")}
+                        </td>
+
+                        <td className="px-4 py-3">{s.estado || "—"}</td>
+
+                        <td className="px-4 py-3 text-xs text-slate-500">
+                          <div>Creación: {formatFechaColombia(s.fechaCreacion)}</div>
+                          <div>Última: {formatFechaColombia(s.fechaUltActualizacion)}</div>
+                          <div>Usuario: {s.usuario || "—"}</div>
+                        </td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="px-4 py-3 border-t border-slate-100 text-xs text-slate-500">
+              Esta tabla lee <b>SolicitudesProduccion</b> filtrando <b>estado=Pendiente</b>. Al crear OPE se asigna el mismo
+              consecutivo a todos los ítems seleccionados.
+            </div>
+          </section>
+        </>
+      )}
+
+      {/* ===========================
+          TAB: PROGRAMAR OPE
          =========================== */}
       {tab === "programar" && (
         <>
@@ -476,9 +833,7 @@ export default function PlaneacionProgramacionProduccionPage() {
                   </div>
 
                   <div>
-                    <label className="mb-1 block text-xs font-medium text-slate-600">
-                      Cola actual (línea seleccionada)
-                    </label>
+                    <label className="mb-1 block text-xs font-medium text-slate-600">Cola actual (línea seleccionada)</label>
                     <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
                       <div>
                         En cola: <b>{resumenLineaSel.enCola}</b>
@@ -518,6 +873,7 @@ export default function PlaneacionProgramacionProduccionPage() {
                         disabled={prioMode !== "despues"}
                       />
                     </label>
+
                     <p className="text-xs text-slate-500">Ejemplo: “Después de 1” = queda en posición 2.</p>
                   </div>
                 </div>
@@ -589,9 +945,7 @@ export default function PlaneacionProgramacionProduccionPage() {
                           <div className="font-medium">{it.productoKey || "—"}</div>
                           <div className="text-xs text-slate-400">{it.solicitudProdId ? `sol: ${it.solicitudProdId}` : ""}</div>
                         </td>
-                        <td className="px-4 py-3 text-right font-semibold">
-                          {toNum(it.cantidadUND).toLocaleString("es-CO")}
-                        </td>
+                        <td className="px-4 py-3 text-right font-semibold">{toNum(it.cantidadUND).toLocaleString("es-CO")}</td>
                         <td className="px-4 py-3">{it.cliente || "—"}</td>
                         <td className="px-4 py-3 text-xs text-slate-500 break-all">{it.pedidoKey || "—"}</td>
                         <td className="px-4 py-3 text-slate-600">{it.rowIndexPedido ?? "—"}</td>
@@ -658,7 +1012,7 @@ export default function PlaneacionProgramacionProduccionPage() {
       )}
 
       {/* ===========================
-          TAB: VER PROGRAMACIÓN (nuevo)
+          TAB: VER PROGRAMACIÓN
          =========================== */}
       {tab === "ver" && (
         <>
@@ -668,9 +1022,7 @@ export default function PlaneacionProgramacionProduccionPage() {
                 <div className="text-base font-semibold text-slate-800">Ver programación (tipo planta)</div>
                 <div className="mt-1 text-xs text-slate-500">
                   Cola por línea → OPEs en orden → expandir para ver productos/UND/cliente.
-                  <span className="ml-2 text-slate-400">
-                    (Subir/Bajar cambia solo en pantalla, mañana lo persistimos.)
-                  </span>
+                  <span className="ml-2 text-slate-400">(Subir/Bajar cambia solo en pantalla, mañana lo persistimos.)</span>
                 </div>
               </div>
 
@@ -695,7 +1047,6 @@ export default function PlaneacionProgramacionProduccionPage() {
 
             {errColas && <p className="mt-2 text-sm text-rose-600">{errColas}</p>}
 
-            {/* Selector de línea */}
             <div className="mt-4 flex flex-wrap gap-2">
               {LINEAS.map((l) => (
                 <button
@@ -709,14 +1060,11 @@ export default function PlaneacionProgramacionProduccionPage() {
                   }`}
                 >
                   {lineaLabel(l)}
-                  <span className="ml-2 text-xs opacity-90">
-                    ({(colasLocal[l] || []).length})
-                  </span>
+                  <span className="ml-2 text-xs opacity-90">({(colasLocal[l] || []).length})</span>
                 </button>
               ))}
             </div>
 
-            {/* Resumen línea */}
             <div className="mt-4 grid gap-3 md:grid-cols-3">
               <div className="rounded-2xl border border-slate-200 p-4">
                 <div className="text-xs font-medium text-slate-600">Línea seleccionada</div>
@@ -729,14 +1077,11 @@ export default function PlaneacionProgramacionProduccionPage() {
               <div className="rounded-2xl border border-slate-200 p-4">
                 <div className="text-xs font-medium text-slate-600">UND total (cargado)</div>
                 <div className="mt-1 text-lg font-semibold">{undTotalLinea.toLocaleString("es-CO")}</div>
-                <div className="mt-1 text-xs text-slate-400">
-                  *Suma solo OPEs cuyo detalle ya se cargó (abre las cards).
-                </div>
+                <div className="mt-1 text-xs text-slate-400">*Suma solo OPEs cuyo detalle ya se cargó (abre las cards).</div>
               </div>
             </div>
           </section>
 
-          {/* Lista OPEs en esa línea */}
           <section className="mt-4 space-y-3">
             {colaVerSel.length === 0 ? (
               <div className="rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-500 shadow-sm">
@@ -759,9 +1104,7 @@ export default function PlaneacionProgramacionProduccionPage() {
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
                           <div className="text-base font-semibold">{x.ope}</div>
-                          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-700">
-                            pos {x.pos}
-                          </span>
+                          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-700">pos {x.pos}</span>
                           <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-700">
                             {x.estado || "En cola"}
                           </span>
@@ -789,9 +1132,7 @@ export default function PlaneacionProgramacionProduccionPage() {
                               {d.items.length > 2 && <div className="text-slate-400">… y {d.items.length - 2} más</div>}
                             </>
                           ) : (
-                            <span className="text-slate-400">
-                              Abre para cargar detalle de productos (productoKey + UND + cliente).
-                            </span>
+                            <span className="text-slate-400">Abre para cargar detalle de productos (productoKey + UND + cliente).</span>
                           )}
                         </div>
                       </div>
@@ -859,13 +1200,9 @@ export default function PlaneacionProgramacionProduccionPage() {
                                     <tr key={`${x.ope}-it-${i3}`} className="hover:bg-slate-50">
                                       <td className="px-4 py-3">
                                         <div className="font-medium">{it.productoKey || "—"}</div>
-                                        <div className="text-xs text-slate-400">
-                                          {it.solicitudProdId ? `sol: ${it.solicitudProdId}` : ""}
-                                        </div>
+                                        <div className="text-xs text-slate-400">{it.solicitudProdId ? `sol: ${it.solicitudProdId}` : ""}</div>
                                       </td>
-                                      <td className="px-4 py-3 text-right font-semibold">
-                                        {toNum(it.cantidadUND).toLocaleString("es-CO")}
-                                      </td>
+                                      <td className="px-4 py-3 text-right font-semibold">{toNum(it.cantidadUND).toLocaleString("es-CO")}</td>
                                       <td className="px-4 py-3">{it.cliente || "—"}</td>
                                       <td className="px-4 py-3 text-xs text-slate-500 break-all">{it.pedidoKey || "—"}</td>
                                       <td className="px-4 py-3 text-slate-600">{it.rowIndexPedido ?? "—"}</td>

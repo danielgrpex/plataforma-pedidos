@@ -25,6 +25,28 @@ function makeId(prefix: string) {
   return `${prefix}_${ts}_${rnd}`;
 }
 
+// ===== Helpers para mapear columnas por header (Inventario) =====
+function normKey(s: unknown) {
+  return toStr(s).toLowerCase().replace(/\s+/g, "");
+}
+
+function buildHeaderIndex(headerRow: any[]) {
+  const idx = new Map<string, number>();
+  headerRow.forEach((h, i) => {
+    const k = normKey(h);
+    if (k) idx.set(k, i);
+  });
+  return idx;
+}
+
+function pickCell(row: any[], idx: Map<string, number>, ...possibleKeys: string[]) {
+  for (const k of possibleKeys) {
+    const i = idx.get(normKey(k));
+    if (i !== undefined) return row[i];
+  }
+  return "";
+}
+
 type Destino = "Almacén" | "Corte" | "Producción";
 
 type Body = {
@@ -56,20 +78,15 @@ export async function POST(req: Request) {
 
     const pedidoKey = toStr(body.pedidoKey);
     if (!pedidoKey) {
-      return NextResponse.json(
-        { success: false, message: "pedidoKey requerido" },
-        { status: 400 }
-      );
+      return NextResponse.json({ success: false, message: "pedidoKey requerido" }, { status: 400 });
     }
 
     const observacionesPlaneacion = toStr(body.observacionesPlaneacion);
     const usuario = toStr(body.usuario) || "planeacion";
     const items = Array.isArray(body.items) ? body.items : [];
+
     if (!items.length) {
-      return NextResponse.json(
-        { success: false, message: "items requeridos" },
-        { status: 400 }
-      );
+      return NextResponse.json({ success: false, message: "items requeridos" }, { status: 400 });
     }
 
     const sheets = await getSheetsClient();
@@ -84,10 +101,7 @@ export async function POST(req: Request) {
       .filter((r) => r >= 2);
 
     if (!rows.length) {
-      return NextResponse.json(
-        { success: false, message: "rowIndex1Based inválidos" },
-        { status: 400 }
-      );
+      return NextResponse.json({ success: false, message: "rowIndex1Based inválidos" }, { status: 400 });
     }
 
     const rangesAL = rows.map((r) => `Pedidos!AL${r}:AL${r}`);
@@ -108,7 +122,7 @@ export async function POST(req: Request) {
     });
 
     /* =========================================================
-       1.1) LEER FILAS DE PEDIDOS (para cantidades / productoKey real)
+       1.1) LEER FILAS DE PEDIDOS (para cantidad UND / productoKey real)
        - Usamos A:AM para tener todo lo necesario
        ========================================================= */
     const rangesRows = rows.map((r) => `Pedidos!A${r}:AM${r}`);
@@ -152,11 +166,7 @@ export async function POST(req: Request) {
 
       const keyInSheet = keyMap[row] || "";
       if (keyInSheet !== pedidoKey) {
-        debug.push({
-          row,
-          ok: false,
-          reason: `AL no coincide (AL=${keyInSheet})`,
-        });
+        debug.push({ row, ok: false, reason: `AL no coincide (AL=${keyInSheet})` });
         continue;
       }
 
@@ -169,15 +179,8 @@ export async function POST(req: Request) {
         values: [[destino, observacionesPlaneacion, "TRUE", fechaRevision, destino, destino]],
       });
 
-      data.push({
-        range: `Pedidos!Y${row}:Y${row}`,
-        values: [[entregaAlm]],
-      });
-
-      data.push({
-        range: `Pedidos!AA${row}:AA${row}`,
-        values: [[despacho]],
-      });
+      data.push({ range: `Pedidos!Y${row}:Y${row}`, values: [[entregaAlm]] });
+      data.push({ range: `Pedidos!AA${row}:AA${row}`, values: [[despacho]] });
 
       debug.push({ row, ok: true });
     }
@@ -186,8 +189,7 @@ export async function POST(req: Request) {
       return NextResponse.json(
         {
           success: false,
-          message:
-            "No se actualizó ninguna fila en Pedidos. Revisa rowIndex1Based y pedidoKey (col AL).",
+          message: "No se actualizó ninguna fila en Pedidos. Revisa rowIndex1Based y pedidoKey (col AL).",
           debug,
         },
         { status: 400 }
@@ -256,22 +258,11 @@ export async function POST(req: Request) {
     }
 
     /* =========================================================
-       4) CREAR / ACTUALIZAR SOLICITUDES DE PRODUCCIÓN
-          Hoja: SolicitudesProduccion
-          Columnas:
-          A solicitudProdId
-          B pedidoKey
-          C rowIndexPedido
-          D productoKey
-          E cantidadUND
-          F estado
-          G fechaCreacion
-          H fechaUltActualizacion
-          I usuario
-          J OPE
+       4) CREAR / ACTUALIZAR SOLICITUDES DE PRODUCCIÓN (si destino=Producción)
+          Hoja: SolicitudesProduccion (A:J)
+          Upsert por (pedidoKey + rowIndexPedido)
+          - Si ya tiene OPE, NO tocamos OPE ni bajamos a Pendiente.
        ========================================================= */
-
-    // Leer solicitudes existentes para upsert por (pedidoKey + rowIndexPedido)
     const solResp = await sheets.spreadsheets.values.get({
       spreadsheetId: env.SHEET_BASE_PRINCIPAL_ID,
       range: "SolicitudesProduccion!A:J",
@@ -281,30 +272,20 @@ export async function POST(req: Request) {
     const solValues = (solResp.data.values || []) as any[][];
     const solRows = solValues.length > 1 ? solValues.slice(1) : [];
 
-    const solMap = new Map<
-      string,
-      { solicitudProdId: string; sheetRow: number; estado: string; ope: string }
-    >();
-
+    const solMap = new Map<string, { sheetRow: number; estado: string; ope: string }>();
     solRows.forEach((r, i) => {
-      const solId = toStr(r[0]); // A
       const pk = toStr(r[1]); // B
       const rowIdx = toStr(r[2]); // C
       const estado = toStr(r[5]); // F
       const ope = toStr(r[9]); // J
-      if (!solId || !pk || !rowIdx) return;
-      solMap.set(`${pk}|${rowIdx}`, {
-        solicitudProdId: solId,
-        sheetRow: i + 2,
-        estado,
-        ope,
-      });
+      if (!pk || !rowIdx) return;
+      solMap.set(`${pk}|${rowIdx}`, { sheetRow: i + 2, estado, ope });
     });
 
     const solAppend: any[][] = [];
     const solUpdateData: Array<{ range: string; values: any[][] }> = [];
-    let solicitudesCreadas = 0;
-    let solicitudesActualizadas = 0;
+    let solicitudesProdCreadas = 0;
+    let solicitudesProdActualizadas = 0;
 
     for (const it of items) {
       const row = Number(it.rowIndex1Based || 0);
@@ -318,18 +299,17 @@ export async function POST(req: Request) {
 
       const pedidoRow = pedidoRowByIndex[row] || [];
 
-      // En Pedidos, cantidad UND está en col 12 (0-based 11) según tu implementación
+      // Pedidos: cantidad UND col 12 => index 11
       const solicitadoUnd = toInt(pedidoRow[11] ?? 0);
 
-      // reservas del payload (aunque producción NO hace movimientos, el front igual puede enviar reservas=[])
+      // Reservas (pueden existir)
       const reservas = Array.isArray(it.reservas) ? it.reservas : [];
       const reservadoUnd = reservas.reduce((acc, r) => acc + toInt(r?.cantidadUnd ?? 0), 0);
 
-      // Lo que va a producción = solicitado - reservado
       const producirUnd = Math.max(0, solicitadoUnd - reservadoUnd);
       if (producirUnd <= 0) continue;
 
-      // productoKey: usa el del payload si viene, si no el de Pedidos col 7 (0-based 6)
+      // productoKey: payload o Pedidos col 7 => index 6
       const productoKey = toStr(it.productoKey) || toStr(pedidoRow[6] ?? "");
 
       const upKey = `${pedidoKey}|${row}`;
@@ -337,50 +317,23 @@ export async function POST(req: Request) {
 
       if (!existing) {
         const solId = makeId("SOLPROD");
-        solAppend.push([
-          solId, // A
-          pedidoKey, // B
-          String(row), // C
-          productoKey, // D
-          String(producirUnd), // E
-          "Pendiente", // F
-          ts, // G
-          ts, // H
-          usuario, // I
-          "", // J OPE
-        ]);
-        solicitudesCreadas += 1;
+        solAppend.push([solId, pedidoKey, String(row), productoKey, String(producirUnd), "Pendiente", ts, ts, usuario, ""]);
+        solicitudesProdCreadas += 1;
       } else {
         const sheetRow = existing.sheetRow;
-
-        // Si ya tiene OPE, NO lo tocamos (para no dañar una orden ya programada)
         const hasOPE = Boolean(toStr(existing.ope));
 
-        // E cantidadUND
-        solUpdateData.push({
-          range: `SolicitudesProduccion!E${sheetRow}:E${sheetRow}`,
-          values: [[String(producirUnd)]],
-        });
+        solUpdateData.push(
+          { range: `SolicitudesProduccion!E${sheetRow}:E${sheetRow}`, values: [[String(producirUnd)]] },
+          {
+            range: `SolicitudesProduccion!F${sheetRow}:F${sheetRow}`,
+            values: [[hasOPE ? (toStr(existing.estado) || "Programado") : "Pendiente"]],
+          },
+          { range: `SolicitudesProduccion!H${sheetRow}:H${sheetRow}`, values: [[ts]] },
+          { range: `SolicitudesProduccion!I${sheetRow}:I${sheetRow}`, values: [[usuario]] }
+        );
 
-        // F estado: si NO tiene OPE => Pendiente, si tiene OPE => se respeta el estado actual
-        solUpdateData.push({
-          range: `SolicitudesProduccion!F${sheetRow}:F${sheetRow}`,
-          values: [[hasOPE ? (toStr(existing.estado) || "Programado") : "Pendiente"]],
-        });
-
-        // H fechaUltActualizacion
-        solUpdateData.push({
-          range: `SolicitudesProduccion!H${sheetRow}:H${sheetRow}`,
-          values: [[ts]],
-        });
-
-        // I usuario
-        solUpdateData.push({
-          range: `SolicitudesProduccion!I${sheetRow}:I${sheetRow}`,
-          values: [[usuario]],
-        });
-
-        solicitudesActualizadas += 1;
+        solicitudesProdActualizadas += 1;
       }
     }
 
@@ -401,13 +354,171 @@ export async function POST(req: Request) {
       });
     }
 
+    /* =========================================================
+       4.5) INVENTARIO MAP (para llenar productoOrigen y largoOrigen en corte)
+       ========================================================= */
+    const invResp = await sheets.spreadsheets.values.get({
+      spreadsheetId: env.SHEET_BASE_PRINCIPAL_ID,
+      range: "Inventario!A:Z",
+      valueRenderOption: "UNFORMATTED_VALUE",
+    });
+
+    const invValues = (invResp.data.values || []) as any[][];
+    const invHeader = invValues[0] || [];
+    const invBody = invValues.length > 1 ? invValues.slice(1) : [];
+
+    const invIdx = buildHeaderIndex(invHeader);
+
+    const invMap = new Map<string, { productoOrigen: string; largoOrigen: string }>();
+
+    for (const r of invBody) {
+      const inventarioId = toStr(
+        pickCell(r, invIdx, "inventarioid", "inventarioorigenid", "id", "idinventario")
+      );
+      if (!inventarioId) continue;
+
+      const productoOrigen = toStr(
+        pickCell(r, invIdx, "productoorigen", "producto", "productokey", "productotexto", "descripcion", "referencia")
+      );
+
+      const largoOrigen = toStr(
+        pickCell(r, invIdx, "largo", "largo(origen)", "largo_cm", "largocm", "largo_m", "largom", "longitud")
+      );
+
+      invMap.set(inventarioId, { productoOrigen, largoOrigen });
+    }
+
+    /* =========================================================
+       5) CREAR / ACTUALIZAR SOLICITUDES DE CORTE (si destino=Corte)
+          Hoja: SolicitudesCorte (A:P)
+          Upsert por (pedidoKey + rowIndexPedido)
+          - Si ya tiene OTE, NO lo tocamos.
+       ========================================================= */
+    const corteResp = await sheets.spreadsheets.values.get({
+      spreadsheetId: env.SHEET_BASE_PRINCIPAL_ID,
+      range: "SolicitudesCorte!A:P",
+      valueRenderOption: "UNFORMATTED_VALUE",
+    });
+
+    const corteValues = (corteResp.data.values || []) as any[][];
+    const corteRows = corteValues.length > 1 ? corteValues.slice(1) : [];
+
+    const corteMap = new Map<string, { sheetRow: number; estadoitem: string; ote: string }>();
+
+    corteRows.forEach((r, i) => {
+      const pk = toStr(r[1]); // B pedidoKey
+      const rowIdx = toStr(r[2]); // C rowIndexPedido
+      const estadoitem = toStr(r[12]); // M estadoitem
+      const ote = toStr(r[15]); // P OTE
+      if (!pk || !rowIdx) return;
+      corteMap.set(`${pk}|${rowIdx}`, { sheetRow: i + 2, estadoitem, ote });
+    });
+
+    const corteAppend: any[][] = [];
+    const corteUpdateData: Array<{ range: string; values: any[][] }> = [];
+    let solicitudesCorteCreadas = 0;
+    let solicitudesCorteActualizadas = 0;
+
+    for (const it of items) {
+      const row = Number(it.rowIndex1Based || 0);
+      if (!row || row < 2) continue;
+
+      const keyInSheet = keyMap[row] || "";
+      if (keyInSheet !== pedidoKey) continue;
+
+      const destino = toStr(it.destino) as Destino;
+      if (destino !== "Corte") continue;
+
+      const pedidoRow = pedidoRowByIndex[row] || [];
+
+      // productoSolicitado: payload o Pedidos col 7 => index 6
+      const productoSolicitado = toStr(it.productoKey) || toStr(pedidoRow[6] ?? "");
+
+      // cantidadSolicitadaUnd: Pedidos col 12 => index 11
+      const cantidadSolicitadaUnd = toInt(pedidoRow[11] ?? 0);
+
+      // Primer lote reservado como "origen" (por ahora)
+      const reservas = Array.isArray(it.reservas) ? it.reservas : [];
+      const inventarioOrigenId = toStr(reservas?.[0]?.inventarioId || "");
+      const cantidadOrigenUnd = toInt(reservas?.[0]?.cantidadUnd || 0);
+
+      // lookup inventario
+      const invInfo = inventarioOrigenId ? invMap.get(inventarioOrigenId) : undefined;
+      const productoOrigen = toStr(invInfo?.productoOrigen || "");
+      const largoOrigen = toStr(invInfo?.largoOrigen || "");
+
+      const upKey = `${pedidoKey}|${row}`;
+      const existing = corteMap.get(upKey);
+
+      if (!existing) {
+        corteAppend.push([
+          makeId("SOLCOR"), // A solicitudCorteId
+          pedidoKey, // B pedidoKey
+          String(row), // C rowIndexPedido
+          productoSolicitado, // D productoSolicitado
+          String(cantidadSolicitadaUnd), // E cantidadSolicitadaUnd
+          inventarioOrigenId, // F inventarioOrigenId
+          productoOrigen, // G productoOrigen ✅
+          largoOrigen, // H largoOrigen ✅
+          String(cantidadOrigenUnd || ""), // I cantidadOrigenUnd
+          "", // J largoFinal
+          "", // K actividades
+          "", // L cantidadResultanteUnd
+          "Pendiente", // M estadoitem
+          ts, // N fechaCreacion
+          usuario, // O usuario
+          "", // P OTE
+        ]);
+
+        solicitudesCorteCreadas += 1;
+      } else {
+        const sheetRow = existing.sheetRow;
+        const hasOTE = Boolean(toStr(existing.ote));
+        if (hasOTE) continue;
+
+        corteUpdateData.push(
+          { range: `SolicitudesCorte!D${sheetRow}:D${sheetRow}`, values: [[productoSolicitado]] },
+          { range: `SolicitudesCorte!E${sheetRow}:E${sheetRow}`, values: [[String(cantidadSolicitadaUnd)]] },
+          { range: `SolicitudesCorte!F${sheetRow}:F${sheetRow}`, values: [[inventarioOrigenId]] },
+          { range: `SolicitudesCorte!G${sheetRow}:G${sheetRow}`, values: [[productoOrigen]] }, // ✅
+          { range: `SolicitudesCorte!H${sheetRow}:H${sheetRow}`, values: [[largoOrigen]] }, // ✅
+          { range: `SolicitudesCorte!I${sheetRow}:I${sheetRow}`, values: [[String(cantidadOrigenUnd || "")]] },
+          { range: `SolicitudesCorte!M${sheetRow}:M${sheetRow}`, values: [["Pendiente"]] },
+          { range: `SolicitudesCorte!O${sheetRow}:O${sheetRow}`, values: [[usuario]] }
+        );
+
+        solicitudesCorteActualizadas += 1;
+      }
+    }
+
+    if (corteAppend.length) {
+      await sheets.spreadsheets.values.append({
+        spreadsheetId: env.SHEET_BASE_PRINCIPAL_ID,
+        range: "SolicitudesCorte!A:P",
+        valueInputOption: "USER_ENTERED",
+        insertDataOption: "INSERT_ROWS",
+        requestBody: { values: corteAppend },
+      });
+    }
+
+    if (corteUpdateData.length) {
+      await sheets.spreadsheets.values.batchUpdate({
+        spreadsheetId: env.SHEET_BASE_PRINCIPAL_ID,
+        requestBody: { valueInputOption: "USER_ENTERED", data: corteUpdateData },
+      });
+    }
+
     return NextResponse.json({
       success: true,
       updatedRanges: data.length,
       movimientosCreados: movCount,
       solicitudesProduccion: {
-        creadas: solicitudesCreadas,
-        actualizadas: solicitudesActualizadas,
+        creadas: solicitudesProdCreadas,
+        actualizadas: solicitudesProdActualizadas,
+      },
+      solicitudesCorte: {
+        creadas: solicitudesCorteCreadas,
+        actualizadas: solicitudesCorteActualizadas,
       },
       debug,
     });
