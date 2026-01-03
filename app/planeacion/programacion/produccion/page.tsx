@@ -1,4 +1,3 @@
-// app/planeacion/programacion/produccion/[grupoKey]/page.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";

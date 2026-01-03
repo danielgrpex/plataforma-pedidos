@@ -4,33 +4,29 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 
-type TabKey = "produccion" | "corte" | "despachos";
-
-type ProgramacionRow = {
-  tab: TabKey;
-
-  // Identificadores
-  groupKey: string; // para entrar a "Programar"
+type SolicitudProd = {
+  solicitudProdId: string;
   pedidoKey: string;
-
-  // Info pedido
-  consecutivo: string;
-  cliente: string;
-  oc: string;
-
-  // Producto
+  rowIndexPedido: string; // viene como texto desde Sheets
   productoKey: string;
-  productoTexto: string;
-
-  // UND
-  solicitadoUnd: number;
-  reservadoUnd: number;
-  porProducirUnd: number;
-
-  // Req / Estado
-  fechaRequerida: string; // ISO o YYYY-MM-DD
-  estado: string; // Pendiente / Programado / etc.
+  cantidadUND: string; // siempre UND
+  estado: string; // Pendiente | Programado | En proceso | Terminado ...
+  fechaCreacion?: string;
+  fechaUltActualizacion?: string;
+  usuario?: string;
+  OPE?: string;
 };
+
+function toNumber(v?: string) {
+  if (!v) return 0;
+  const s = String(v)
+    .trim()
+    .replace(/\s/g, "")
+    .replace(/\./g, "")
+    .replace(",", ".");
+  const n = Number(s);
+  return Number.isFinite(n) ? n : 0;
+}
 
 function formatFechaColombia(value?: string) {
   if (!value) return "—";
@@ -47,7 +43,7 @@ function formatFechaColombia(value?: string) {
       .replace(".", "")
       .replace(/^\w/, (c) => c.toUpperCase());
     const year = date.getFullYear();
-    return `${day}/${month}/${year}`;
+    return `${day}-${month}-${year}`;
   }
 
   const d2 = new Date(value);
@@ -58,345 +54,459 @@ function formatFechaColombia(value?: string) {
       .replace(".", "")
       .replace(/^\w/, (c) => c.toUpperCase());
     const year = d2.getFullYear();
-    return `${day}/${month}/${year}`;
+    return `${day}-${month}-${year}`;
   }
 
   return value;
 }
 
-function chipEstado(estado?: string) {
-  const s = (estado || "").toLowerCase();
-  if (!estado || s.includes("pend")) {
-    return (
-      <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-700">
-        Pendiente
-      </span>
-    );
-  }
-  if (s.includes("program")) {
-    return (
-      <span className="inline-flex items-center rounded-full bg-indigo-50 px-2 py-0.5 text-xs text-indigo-700">
-        Programado
-      </span>
-    );
-  }
-  if (s.includes("ingres")) {
-    return (
-      <span className="inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700">
-        Ingresado
-      </span>
-    );
-  }
-  return (
-    <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-700">
-      {estado}
-    </span>
-  );
-}
-
-// ✅ Mock (para ver UI sin backend)
-const MOCK: ProgramacionRow[] = [
-  {
-    tab: "produccion",
-    groupKey: "GRP|Perfíl Regleta 70|Negro|7|3.8",
-    pedidoKey: "PK-001",
-    consecutivo: "000123",
-    cliente: "Jeronimo",
-    oc: "OC-C-8899",
-    productoKey: "ProdA|Rojo|50|0.998|Sin acabados",
-    productoTexto: "Prod A | Rojo | 50 cm | 0,998 m | Sin acabados",
-    solicitadoUnd: 49000,
-    reservadoUnd: 0,
-    porProducirUnd: 49000,
-    fechaRequerida: "2026-01-14",
-    estado: "Pendiente",
-  },
-  {
-    tab: "produccion",
-    groupKey: "GRP|Perfíl Regleta 70|Negro|7|3.8",
-    pedidoKey: "PK-001",
-    consecutivo: "000123",
-    cliente: "Jeronimo",
-    oc: "OC-C-8899",
-    productoKey: "ProdB|Azul|50|0.998|Sin acabados",
-    productoTexto: "Prod B | Azul | 50 cm | 0,998 m | Sin acabados",
-    solicitadoUnd: 11200,
-    reservadoUnd: 200,
-    porProducirUnd: 11000,
-    fechaRequerida: "2026-01-14",
-    estado: "Pendiente",
-  },
-  {
-    tab: "corte",
-    groupKey: "CORTE|Algamar|OC27655|R3",
-    pedidoKey: "Algamar|Calle 54#46-15|Itagui|27655",
-    consecutivo: "000002",
-    cliente: "Algamar",
-    oc: "27655",
-    productoKey: "Enganche|Blanco|4|0.992|Marca",
-    productoTexto: "Enganche Interno Tipo Bisagra | Blanco | 4 cm | 0,992 m | Marca",
-    solicitadoUnd: 200,
-    reservadoUnd: 200,
-    porProducirUnd: 0,
-    fechaRequerida: "2026-01-13",
-    estado: "Pendiente",
-  },
-  {
-    tab: "despachos",
-    groupKey: "DSP|PK-001",
-    pedidoKey: "PK-001",
-    consecutivo: "000123",
-    cliente: "Jeronimo",
-    oc: "OC-C-8899",
-    productoKey: "ProdC|Negro|50|0.998|Sin acabados",
-    productoTexto: "Prod C | Negro | 50 cm | 0,998 m | Sin acabados",
-    solicitadoUnd: 600,
-    reservadoUnd: 600,
-    porProducirUnd: 0,
-    fechaRequerida: "2026-01-12",
-    estado: "Pendiente",
-  },
-];
-
 export default function PlaneacionProgramacionPage() {
-  const [tab, setTab] = useState<TabKey>("produccion");
-  const [q, setQ] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [rows, setRows] = useState<ProgramacionRow[]>([]);
+  const [tab, setTab] = useState<"Producción" | "Corte" | "Despachar">("Producción");
 
-  async function load() {
+  // PRODUCCIÓN
+  const [items, setItems] = useState<SolicitudProd[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [q, setQ] = useState("");
+  const [selected, setSelected] = useState<Record<string, boolean>>({});
+  const [msg, setMsg] = useState("");
+  const [err, setErr] = useState("");
+  const [creating, setCreating] = useState(false);
+
+  async function loadProduccion() {
+    setErr("");
+    setMsg("");
     setLoading(true);
 
-    // ✅ Cuando exista backend, aquí solo cambias el endpoint.
-    // Ej:
-    // const res = await fetch(`/api/planeacion/programacion/list?tab=${tab}&q=${encodeURIComponent(q.trim())}`, { cache: "no-store" });
-    // const json = await res.json();
-    // setRows(json.items || []);
-    // setLoading(false);
+    try {
+      // ✅ Backend sugerido:
+      // GET /api/planeacion/programacion/solicitudes?estado=Pendiente&q=...
+      const url = `/api/planeacion/programacion/solicitudes?estado=Pendiente&q=${encodeURIComponent(
+        q.trim()
+      )}`;
+      const res = await fetch(url, { cache: "no-store" });
+      const json = await res.json().catch(() => null);
 
-    // ✅ Por ahora: mock + filtro
-    const all = MOCK.filter((r) => r.tab === tab);
+      if (!res.ok || !json?.success) {
+        throw new Error(json?.message || "No se pudieron cargar las solicitudes.");
+      }
 
-    const qq = q.trim().toLowerCase();
-    const filtered = !qq
-      ? all
-      : all.filter((r) => {
-          const blob = [
-            r.consecutivo,
-            r.cliente,
-            r.oc,
-            r.pedidoKey,
-            r.productoTexto,
-            r.productoKey,
-          ]
-            .join(" ")
-            .toLowerCase();
-          return blob.includes(qq);
+      const list = (json.items || []) as SolicitudProd[];
+      setItems(list);
+
+      // ✅ Mantener selección solo para ids existentes
+      setSelected((prev) => {
+        const next: Record<string, boolean> = {};
+        const allow = new Set(list.map((x) => x.solicitudProdId));
+        Object.entries(prev).forEach(([id, v]) => {
+          if (allow.has(id) && v) next[id] = true;
         });
-
-    // Simula carga
-    setTimeout(() => {
-      setRows(filtered);
+        return next;
+      });
+    } catch (e: any) {
+      console.error(e);
+      setErr(e?.message || "Error cargando solicitudes.");
+      setItems([]);
+      setSelected({});
+    } finally {
       setLoading(false);
-    }, 150);
+    }
   }
 
   useEffect(() => {
-    load();
+    loadProduccion();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab]);
+  }, []);
 
-  const empty = useMemo(() => !loading && rows.length === 0, [loading, rows.length]);
+  const selectedIds = useMemo(
+    () => Object.entries(selected).filter(([, v]) => v).map(([k]) => k),
+    [selected]
+  );
 
-  const helperText = useMemo(() => {
-    if (tab === "produccion") return "Muestra ítems con destino Producción o con cantidad por producir.";
-    if (tab === "corte") return "Muestra ítems clasificados a Corte (y pendientes por programar).";
-    return "Muestra ítems listos para Despacho (reservados/almacén) y pendientes por despachar.";
-  }, [tab]);
+  const selectedRows = useMemo(() => {
+    const map = new Map(items.map((x) => [x.solicitudProdId, x]));
+    return selectedIds.map((id) => map.get(id)).filter(Boolean) as SolicitudProd[];
+  }, [items, selectedIds]);
+
+  const totalSelectedUND = useMemo(() => {
+    return selectedRows.reduce((acc, x) => acc + toNumber(x.cantidadUND), 0);
+  }, [selectedRows]);
+
+  const agrupadoPorProducto = useMemo(() => {
+    const m = new Map<string, { productoKey: string; und: number; count: number }>();
+    for (const s of selectedRows) {
+      const key = (s.productoKey || "—").trim();
+      const cur = m.get(key) || { productoKey: key, und: 0, count: 0 };
+      cur.und += toNumber(s.cantidadUND);
+      cur.count += 1;
+      m.set(key, cur);
+    }
+    return Array.from(m.values()).sort((a, b) => b.und - a.und);
+  }, [selectedRows]);
+
+  const allChecked = useMemo(() => {
+    if (!items.length) return false;
+    return items.every((x) => selected[x.solicitudProdId]);
+  }, [items, selected]);
+
+  function toggleAll() {
+    if (!items.length) return;
+    setSelected((prev) => {
+      const next: Record<string, boolean> = { ...prev };
+      if (allChecked) {
+        items.forEach((x) => {
+          delete next[x.solicitudProdId];
+        });
+      } else {
+        items.forEach((x) => {
+          next[x.solicitudProdId] = true;
+        });
+      }
+      return next;
+    });
+  }
+
+  async function crearOPE() {
+    setErr("");
+    setMsg("");
+    if (!selectedIds.length) {
+      setErr("Selecciona al menos 1 solicitud.");
+      return;
+    }
+
+    try {
+      setCreating(true);
+      setMsg("Creando OPE…");
+
+      // ✅ Backend sugerido:
+      // POST /api/planeacion/programacion/ope/crear
+      // body: { solicitudProdIds: string[], usuario: string }
+      const res = await fetch("/api/planeacion/programacion/ope/crear", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          solicitudProdIds: selectedIds,
+          usuario: "planeacion",
+        }),
+      });
+
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.success) {
+        throw new Error(json?.message || "No se pudo crear la OPE.");
+      }
+
+      const ope = String(json.ope || "").trim();
+      setMsg(ope ? `✅ OPE creada: ${ope}` : "✅ OPE creada.");
+
+      // refrescar lista para que ya no aparezcan como “Pendiente”
+      await loadProduccion();
+      setSelected({});
+    } catch (e: any) {
+      console.error(e);
+      setErr(e?.message || "Error creando OPE.");
+    } finally {
+      setCreating(false);
+      setTimeout(() => setMsg(""), 5000);
+    }
+  }
 
   return (
     <main className="mx-auto max-w-6xl px-6 py-8">
-      <Link
-        href="/planeacion"
-        className="mb-4 inline-flex text-sm text-slate-500 hover:text-slate-700"
-      >
-        ← Volver
-      </Link>
-
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold">Programación</h1>
+          <h1 className="text-2xl font-semibold">Planeación · Programación</h1>
           <p className="text-sm text-slate-500">
-            Planeación programa <b>Producción</b>, <b>Corte</b> y <b>Despachos</b>.
+            Desde aquí planeación programa <b>Producción</b>, <b>Corte</b> y <b>Despachos</b>.
           </p>
         </div>
+
+        <Link
+          href="/planeacion"
+          className="rounded-xl border border-slate-300 px-4 py-2 text-sm hover:bg-slate-50"
+        >
+          ← Volver
+        </Link>
+        <Link
+  href="/planeacion/programacion/produccion"
+  className="mt-3 inline-flex items-center justify-center rounded-xl bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+>
+  Programar en líneas →
+</Link>
+
       </div>
 
-      <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          {/* Tabs */}
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => setTab("produccion")}
-              className={[
-                "rounded-xl border px-4 py-2 text-sm",
-                tab === "produccion"
-                  ? "border-indigo-300 bg-indigo-50 text-indigo-700"
-                  : "border-slate-300 bg-white hover:bg-slate-50",
-              ].join(" ")}
-            >
-              Producción
-            </button>
+      {/* Tabs */}
+      <section className="mt-6 grid gap-3 md:grid-cols-3">
+        <button
+          type="button"
+          onClick={() => setTab("Producción")}
+          className={`rounded-2xl border p-4 text-left shadow-sm transition ${
+            tab === "Producción"
+              ? "border-indigo-300 bg-indigo-50"
+              : "border-slate-200 bg-white hover:bg-slate-50"
+          }`}
+        >
+          <div className="text-sm font-semibold">Producción</div>
+          <div className="text-xs text-slate-500">
+            Solicitudes pendientes → crear OPE (orden de producción).
+          </div>
+        </button>
 
-            <button
-              type="button"
-              onClick={() => setTab("corte")}
-              className={[
-                "rounded-xl border px-4 py-2 text-sm",
-                tab === "corte"
-                  ? "border-indigo-300 bg-indigo-50 text-indigo-700"
-                  : "border-slate-300 bg-white hover:bg-slate-50",
-              ].join(" ")}
-            >
-              Corte
-            </button>
+        <button
+          type="button"
+          onClick={() => setTab("Corte")}
+          className={`rounded-2xl border p-4 text-left shadow-sm transition ${
+            tab === "Corte"
+              ? "border-indigo-300 bg-indigo-50"
+              : "border-slate-200 bg-white hover:bg-slate-50"
+          }`}
+        >
+          <div className="text-sm font-semibold">Corte</div>
+          <div className="text-xs text-slate-500">Programación de cortes (pendiente de construir).</div>
+        </button>
 
-            <button
-              type="button"
-              onClick={() => setTab("despachos")}
-              className={[
-                "rounded-xl border px-4 py-2 text-sm",
-                tab === "despachos"
-                  ? "border-indigo-300 bg-indigo-50 text-indigo-700"
-                  : "border-slate-300 bg-white hover:bg-slate-50",
-              ].join(" ")}
-            >
-              Despachos
-            </button>
+        <button
+          type="button"
+          onClick={() => setTab("Despachar")}
+          className={`rounded-2xl border p-4 text-left shadow-sm transition ${
+            tab === "Despachar"
+              ? "border-indigo-300 bg-indigo-50"
+              : "border-slate-200 bg-white hover:bg-slate-50"
+          }`}
+        >
+          <div className="text-sm font-semibold">Despachar</div>
+          <div className="text-xs text-slate-500">Programación de despachos (pendiente de construir).</div>
+        </button>
+      </section>
 
-            <div className="ml-1 hidden text-xs text-slate-500 md:flex md:items-center">
-              {helperText}
+      {/* PRODUCCIÓN */}
+      {tab === "Producción" && (
+        <>
+          <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                className="w-full md:w-[520px] rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                placeholder="Buscar por pedidoKey, productoKey, OPE, estado…"
+              />
+              <button
+                onClick={loadProduccion}
+                className="rounded-xl border border-slate-300 px-4 py-2 text-sm hover:bg-slate-50"
+                disabled={loading}
+              >
+                {loading ? "Cargando…" : "Buscar"}
+              </button>
+
+              <div className="flex-1" />
+
+              <button
+                onClick={crearOPE}
+                disabled={creating || !selectedIds.length}
+                className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-60"
+                title="Crear OPE para las solicitudes seleccionadas"
+              >
+                {creating ? "Creando…" : `Crear OPE (${selectedIds.length})`}
+              </button>
             </div>
-          </div>
 
-          {/* Search */}
-          <div className="flex w-full gap-2 md:w-[520px]">
-            <input
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
-              placeholder="Buscar por cliente, OC, consecutivo, pedidoKey o producto…"
-            />
-            <button
-              type="button"
-              onClick={load}
-              className="rounded-xl border border-slate-300 px-4 py-2 text-sm hover:bg-slate-50"
-              disabled={loading}
-            >
-              {loading ? "Cargando…" : "Buscar"}
-            </button>
-          </div>
+            {(msg || err) && (
+              <div className="mt-3">
+                {msg && <p className="text-xs text-emerald-600">{msg}</p>}
+                {err && <p className="text-xs text-red-500">{err}</p>}
+              </div>
+            )}
+          </section>
 
-          {/* helper mobile */}
-          <div className="text-xs text-slate-500 md:hidden">{helperText}</div>
-        </div>
-      </section>
+          {/* Resumen selección */}
+          <section className="mt-4 grid gap-3 md:grid-cols-2">
+            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="text-sm font-semibold">Selección actual</div>
+              <div className="mt-2 text-sm text-slate-600">
+                Ítems: <b>{selectedIds.length}</b>
+              </div>
+              <div className="text-sm text-slate-600">
+                Total UND: <b>{totalSelectedUND.toLocaleString("es-CO")}</b>
+              </div>
+              <p className="mt-2 text-xs text-slate-500">
+                Nota: al crear OPE, todos los ítems seleccionados quedan con el mismo consecutivo (ej:{" "}
+                <b>OPE260001</b>).
+              </p>
+            </div>
 
-      <section className="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-sm">
-            <thead className="bg-slate-50 text-slate-600">
-              <tr>
-                <th className="px-4 py-3 text-left font-medium">Pedido</th>
-                <th className="px-4 py-3 text-left font-medium">Producto</th>
-                <th className="px-4 py-3 text-right font-medium">Solicitado (UND)</th>
-                <th className="px-4 py-3 text-right font-medium">Reservado (UND)</th>
-                <th className="px-4 py-3 text-right font-medium">Por producir (UND)</th>
-                <th className="px-4 py-3 text-left font-medium">Req</th>
-                <th className="px-4 py-3 text-left font-medium">Estado</th>
-                <th className="px-4 py-3 text-left font-medium">Acción</th>
-              </tr>
-            </thead>
-
-            <tbody className="divide-y divide-slate-100">
-              {loading && (
-                <tr>
-                  <td className="px-4 py-4 text-slate-500" colSpan={8}>
-                    Cargando…
-                  </td>
-                </tr>
+            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="text-sm font-semibold">Agrupado por productoKey</div>
+              {selectedIds.length === 0 ? (
+                <p className="mt-2 text-sm text-slate-500">Selecciona ítems para ver el resumen.</p>
+              ) : (
+                <div className="mt-2 max-h-[160px] overflow-auto">
+                  <table className="min-w-full text-sm">
+                    <thead className="text-slate-500">
+                      <tr>
+                        <th className="py-1 text-left font-medium">ProductoKey</th>
+                        <th className="py-1 text-right font-medium">UND</th>
+                        <th className="py-1 text-right font-medium">Ítems</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {agrupadoPorProducto.map((x) => (
+                        <tr key={x.productoKey}>
+                          <td className="py-1 pr-3">
+                            <span className="font-mono text-[12px]">{x.productoKey}</span>
+                          </td>
+                          <td className="py-1 text-right font-semibold">
+                            {x.und.toLocaleString("es-CO")}
+                          </td>
+                          <td className="py-1 text-right">{x.count}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               )}
+            </div>
+          </section>
 
-              {empty && (
-                <tr>
-                  <td className="px-4 py-4 text-slate-500" colSpan={8}>
-                    No hay ítems para esta pestaña.
-                  </td>
-                </tr>
-              )}
-
-              {!loading &&
-                rows.map((r, idx) => (
-                  <tr key={`${r.groupKey}-${r.pedidoKey}-${r.productoKey}-${idx}`} className="hover:bg-slate-50">
-                    <td className="px-4 py-3">
-                      <div className="font-semibold">{r.consecutivo || "—"}</div>
-                      <div className="text-xs text-slate-500">{r.cliente || "—"}</div>
-                      <div className="text-xs text-slate-400">
-                        OC {r.oc || "—"} ·{" "}
-                        <span className="font-mono">{r.pedidoKey}</span>
+          {/* Tabla */}
+          <section className="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead className="bg-slate-50 text-slate-600">
+                  <tr>
+                    <th className="px-4 py-3 text-left font-medium">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={allChecked}
+                          onChange={toggleAll}
+                          disabled={!items.length}
+                        />
+                        <span>Sel</span>
                       </div>
-                    </td>
-
-                    <td className="px-4 py-3">
-                      <div className="font-medium">{r.productoTexto || "—"}</div>
-                      <div className="text-xs text-slate-400 break-all">{r.productoKey}</div>
-                    </td>
-
-                    <td className="px-4 py-3 text-right font-medium">
-                      {r.solicitadoUnd.toLocaleString("es-CO")}
-                    </td>
-
-                    <td className="px-4 py-3 text-right font-medium">
-                      {r.reservadoUnd.toLocaleString("es-CO")}
-                    </td>
-
-                    <td className="px-4 py-3 text-right font-semibold">
-                      {r.porProducirUnd.toLocaleString("es-CO")}
-                    </td>
-
-                    <td className="px-4 py-3">{formatFechaColombia(r.fechaRequerida)}</td>
-
-                    <td className="px-4 py-3">{chipEstado(r.estado)}</td>
-
-                    <td className="px-4 py-3">
-                      {tab === "produccion" ? (
-                        <Link
-                          className="inline-flex rounded-xl bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
-                          href={`/planeacion/programacion/produccion/${encodeURIComponent(r.groupKey)}`}
-                        >
-                          Programar
-                        </Link>
-                      ) : (
-                        <button
-                          type="button"
-                          className="inline-flex rounded-xl border border-slate-300 px-4 py-2 text-sm hover:bg-slate-50"
-                          onClick={() => alert("Este detalle lo armamos en el siguiente paso (frontend).")}
-                        >
-                          Programar
-                        </button>
-                      )}
-                    </td>
+                    </th>
+                    <th className="px-4 py-3 text-left font-medium">Solicitud</th>
+                    <th className="px-4 py-3 text-left font-medium">Pedido</th>
+                    <th className="px-4 py-3 text-left font-medium">ProductoKey</th>
+                    <th className="px-4 py-3 text-right font-medium">UND</th>
+                    <th className="px-4 py-3 text-left font-medium">Estado</th>
+                    <th className="px-4 py-3 text-left font-medium">OPE</th>
+                    <th className="px-4 py-3 text-left font-medium">Actualización</th>
                   </tr>
-                ))}
-            </tbody>
-          </table>
-        </div>
+                </thead>
 
-        <div className="px-4 py-3 border-t border-slate-100 text-xs text-slate-500">
-          UND siempre. En Producción, el botón <b>Programar</b> abre el detalle del grupo.
-        </div>
-      </section>
+                <tbody className="divide-y divide-slate-100">
+                  {loading && (
+                    <tr>
+                      <td colSpan={8} className="px-4 py-4 text-slate-500">
+                        Cargando…
+                      </td>
+                    </tr>
+                  )}
+
+                  {!loading && items.length === 0 && (
+                    <tr>
+                      <td colSpan={8} className="px-4 py-4 text-slate-500">
+                        No hay solicitudes de producción en estado <b>Pendiente</b>.
+                      </td>
+                    </tr>
+                  )}
+
+                  {!loading &&
+                    items.map((s) => (
+                      <tr key={s.solicitudProdId} className="hover:bg-slate-50 align-top">
+                        <td className="px-4 py-3">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(selected[s.solicitudProdId])}
+                            onChange={(e) =>
+                              setSelected((prev) => ({
+                                ...prev,
+                                [s.solicitudProdId]: e.target.checked,
+                              }))
+                            }
+                          />
+                        </td>
+
+                        <td className="px-4 py-3">
+                          <div className="font-medium">{s.solicitudProdId}</div>
+                          <div className="text-xs text-slate-400">
+                            row Pedido: <b>{s.rowIndexPedido || "—"}</b>
+                          </div>
+                        </td>
+
+                        <td className="px-4 py-3">
+                          <div className="font-medium">{s.pedidoKey}</div>
+                          <Link
+                            className="text-xs text-indigo-600 underline underline-offset-2 hover:text-indigo-700"
+                            href={`/planeacion/pedido/${encodeURIComponent(s.pedidoKey)}`}
+                            title="Abrir pedido"
+                          >
+                            Ver pedido
+                          </Link>
+                        </td>
+
+                        <td className="px-4 py-3">
+                          <span className="font-mono text-[12px]">{s.productoKey || "—"}</span>
+                        </td>
+
+                        <td className="px-4 py-3 text-right font-semibold">
+                          {toNumber(s.cantidadUND).toLocaleString("es-CO")}
+                        </td>
+
+                        <td className="px-4 py-3">{s.estado || "—"}</td>
+
+                        <td className="px-4 py-3">
+                          {s.OPE ? (
+                            <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-semibold text-indigo-700">
+                              {s.OPE}
+                            </span>
+                          ) : (
+                            <span className="text-slate-400">—</span>
+                          )}
+                        </td>
+
+                        <td className="px-4 py-3 text-xs text-slate-500">
+                          <div>Creación: {formatFechaColombia(s.fechaCreacion)}</div>
+                          <div>Última: {formatFechaColombia(s.fechaUltActualizacion)}</div>
+                          <div>Usuario: {s.usuario || "—"}</div>
+                        </td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="px-4 py-3 border-t border-slate-100 text-xs text-slate-500">
+              Esta tabla lee <b>SolicitudesProduccion</b> filtrando <b>estado=Pendiente</b>. Al crear OPE se actualiza la
+              columna <b>OPE</b> para todos los ítems seleccionados.
+            </div>
+          </section>
+        </>
+      )}
+
+      {/* PLACEHOLDERS */}
+      {tab === "Corte" && (
+        <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <h2 className="text-base font-semibold">Programación · Corte</h2>
+          <p className="mt-1 text-sm text-slate-500">
+            Aquí vamos a listar lo clasificado a <b>Corte</b> + lo que llega de <b>Producción</b> para programar cortes.
+          </p>
+          <div className="mt-4 rounded-xl bg-slate-50 p-4 text-sm text-slate-600">
+            Pendiente: definir hoja/estructura de “SolicitudesCorte” y estados.
+          </div>
+        </section>
+      )}
+
+      {tab === "Despachar" && (
+        <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <h2 className="text-base font-semibold">Programación · Despachar</h2>
+          <p className="mt-1 text-sm text-slate-500">
+            Aquí vamos a listar lo que está en <b>Almacén</b> listo para despacho y asignar programación de logística.
+          </p>
+          <div className="mt-4 rounded-xl bg-slate-50 p-4 text-sm text-slate-600">
+            Pendiente: definir origen (Pedidos/Movimientos) y el flujo de “Despachos”.
+          </div>
+        </section>
+      )}
     </main>
   );
 }
