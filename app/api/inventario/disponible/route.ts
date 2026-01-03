@@ -1,3 +1,4 @@
+// app/api/inventario/disponible/route.ts
 import { NextResponse } from "next/server";
 import { env } from "@/lib/config/env";
 import { getSheetsClient } from "@/lib/google/googleSheets";
@@ -6,6 +7,10 @@ export const runtime = "nodejs";
 
 function toStr(v: unknown) {
   return String(v ?? "").trim();
+}
+
+function norm(v: unknown) {
+  return toStr(v).toLowerCase();
 }
 
 function toNumber(v: unknown) {
@@ -19,58 +24,103 @@ function toNumber(v: unknown) {
   return Number.isFinite(n) ? n : 0;
 }
 
-type InvRow = {
+function buildHeaderIndex(headerRow: any[]) {
+  const idx = new Map<string, number>();
+  headerRow.forEach((h, i) => {
+    const key = norm(h);
+    if (key) idx.set(key, i);
+  });
+  return idx;
+}
+
+function pick(row: any[], idx: Map<string, number>, col: string) {
+  const i = idx.get(col.toLowerCase());
+  return i === undefined ? "" : row[i];
+}
+
+type Lot = {
   inventarioId: string;
-  tipoInventario: string; // MP | PEP | PT
-  almacen: string; // Materia Prima e Insumos | Producto en Proceso | Producto Terminado
+  tipoInventario: string;
+  almacen: string;
   productoKey: string;
   productoDescripcion: string;
-  unidadBase: string; // UND | M
 
-  cantidadInicialUnd: number;
-  cantidadInicialM: number;
+  referencia: string;
+  color: string;
+  ancho: string;
+  largo: string;
+  acabados: string;
 
-  estadoInventario: string; // Disponible | ...
+  unidadBase: string;
+
+  disponibleUnd: number;
+  disponibleM: number;
 };
 
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
 
+    // filtros
     const productoKey = toStr(searchParams.get("productoKey"));
     const almacen = toStr(searchParams.get("almacen"));
     const tipoInventario = toStr(searchParams.get("tipoInventario"));
 
+    // filtros “por campos” (para match compatible)
+    const referencia = toStr(searchParams.get("referencia"));
+    const color = toStr(searchParams.get("color"));
+    const ancho = toStr(searchParams.get("ancho"));
+    const largo = toStr(searchParams.get("largo"));
+    const acabados = toStr(searchParams.get("acabados"));
+
+    // exact = exige acabados (si se pasan)
+    // compatible = ignora acabados
+    const match = (toStr(searchParams.get("match")) || "exact").toLowerCase(); // exact | compatible
+
     const sheets = await getSheetsClient();
 
-    // ✅ Inventario (A:AB = 28 columnas, según tu estructura)
+    /* =========================
+       INVENTARIO
+    ========================= */
     const invResp = await sheets.spreadsheets.values.get({
       spreadsheetId: env.SHEET_BASE_PRINCIPAL_ID,
-      range: "Inventario!A:AB",
+      range: "Inventario!A:Z",
       valueRenderOption: "UNFORMATTED_VALUE",
     });
 
     const invValues = (invResp.data.values || []) as any[][];
     if (invValues.length <= 1) {
-      return NextResponse.json({ success: true, totals: { und: 0, m: 0 }, lots: [] });
+      return NextResponse.json({
+        success: true,
+        filters: { productoKey, almacen, tipoInventario, referencia, color, ancho, largo, acabados, match },
+        totals: { und: 0, m: 0 },
+        resumen: [],
+        lots: [],
+      });
     }
 
-    const invRowsRaw = invValues.slice(1);
+    const invHeader = invValues[0];
+    const invIdx = buildHeaderIndex(invHeader);
+    const invRows = invValues.slice(1);
 
-    // Mapeo por índice
-    const inventario: InvRow[] = invRowsRaw
+    const inventarioBase = invRows
       .map((r) => {
-        const inventarioId = toStr(r[0]); // A
-        const tipoInventario = toStr(r[1]); // B
-        const almacen = toStr(r[2]); // C
-        const productoKey = toStr(r[3]); // D
-        const productoDescripcion = toStr(r[4]); // E
-        const unidadBase = toStr(r[9]); // J
+        const inventarioId = toStr(pick(r, invIdx, "inventarioId"));
+        const tipoInventario = toStr(pick(r, invIdx, "tipoInventario"));
+        const almacen = toStr(pick(r, invIdx, "almacen"));
+        const productoKey = toStr(pick(r, invIdx, "productoKey"));
+        const productoDescripcion = toStr(pick(r, invIdx, "productoDescripcion"));
 
-        const cantidadInicialUnd = toNumber(r[10]); // K
-        const cantidadInicialM = toNumber(r[11]); // L
+        const referencia = toStr(pick(r, invIdx, "referencia"));
+        const color = toStr(pick(r, invIdx, "color"));
+        const ancho = toStr(pick(r, invIdx, "ancho"));
+        const largo = toStr(pick(r, invIdx, "largo"));
+        const acabados = toStr(pick(r, invIdx, "acabados"));
 
-        const estadoInventario = toStr(r[16]); // Q
+        const unidadBase = toStr(pick(r, invIdx, "unidadBase"));
+        const cantidadInicialUnd = toNumber(pick(r, invIdx, "cantidadInicialUnd"));
+        const cantidadInicialM = toNumber(pick(r, invIdx, "cantidadInicialM"));
+        const estadoInventario = toStr(pick(r, invIdx, "estadoInventario"));
 
         return {
           inventarioId,
@@ -78,40 +128,49 @@ export async function GET(req: Request) {
           almacen,
           productoKey,
           productoDescripcion,
+          referencia,
+          color,
+          ancho,
+          largo,
+          acabados,
           unidadBase,
           cantidadInicialUnd,
           cantidadInicialM,
           estadoInventario,
         };
       })
-      // Filtritos básicos (puedes ajustarlos después)
-      .filter((x) => x.inventarioId && x.productoKey)
+      .filter((x) => x.inventarioId && (x.productoKey || x.referencia))
       .filter((x) => {
         const st = x.estadoInventario.toLowerCase();
-        // Excluimos consumido / no conforme por defecto
         if (st.includes("consumido")) return false;
         if (st.includes("no conforme")) return false;
+        // por defecto solo “Disponible” si existe esa palabra
+        if (st && !st.includes("disponible")) return false;
         return true;
       });
 
-    // ✅ MovimientosInventario (A:L = 12 cols)
+    /* =========================
+       MOVIMIENTOS
+    ========================= */
     const movResp = await sheets.spreadsheets.values.get({
       spreadsheetId: env.SHEET_BASE_PRINCIPAL_ID,
-      range: "MovimientosInventario!A:L",
+      range: "MovimientosInventario!A:Z",
       valueRenderOption: "UNFORMATTED_VALUE",
     });
 
     const movValues = (movResp.data.values || []) as any[][];
     const movRows = movValues.length > 1 ? movValues.slice(1) : [];
+    const movHeader = movValues.length ? movValues[0] : [];
+    const movIdx = buildHeaderIndex(movHeader);
 
-    // Sumatoria por inventarioId
     const movSum = new Map<string, { und: number; m: number }>();
+
     for (const r of movRows) {
-      const invId = toStr(r[1]); // inventarioId
+      const invId = toStr(pick(r, movIdx, "inventarioId"));
       if (!invId) continue;
 
-      const und = toNumber(r[3]); // cantidadUnd
-      const m = toNumber(r[4]); // cantidadM
+      const und = toNumber(pick(r, movIdx, "cantidadUnd"));
+      const m = toNumber(pick(r, movIdx, "cantidadM"));
 
       const curr = movSum.get(invId) || { und: 0, m: 0 };
       curr.und += und;
@@ -119,27 +178,31 @@ export async function GET(req: Request) {
       movSum.set(invId, curr);
     }
 
-    // ✅ AjustesInventario (A:J = 10 cols)
-    // Solo sumamos ajustes que NO tengan movimientoId, para evitar duplicar
+    /* =========================
+       AJUSTES
+    ========================= */
     const adjResp = await sheets.spreadsheets.values.get({
       spreadsheetId: env.SHEET_BASE_PRINCIPAL_ID,
-      range: "AjustesInventario!A:J",
+      range: "AjustesInventario!A:Z",
       valueRenderOption: "UNFORMATTED_VALUE",
     });
 
     const adjValues = (adjResp.data.values || []) as any[][];
     const adjRows = adjValues.length > 1 ? adjValues.slice(1) : [];
+    const adjHeader = adjValues.length ? adjValues[0] : [];
+    const adjIdx = buildHeaderIndex(adjHeader);
 
     const adjExtra = new Map<string, { und: number; m: number }>();
+
     for (const r of adjRows) {
-      const invId = toStr(r[1]); // inventarioId
+      const invId = toStr(pick(r, adjIdx, "inventarioId"));
       if (!invId) continue;
 
-      const movimientoId = toStr(r[9]); // movimientoId (col J)
-      if (movimientoId) continue; // si ya tiene movimiento, no lo contamos aquí
+      const movimientoId = toStr(pick(r, adjIdx, "movimientoId"));
+      if (movimientoId) continue; // evita doble conteo
 
-      const und = toNumber(r[3]); // cantidadAjusteUnd
-      const m = toNumber(r[4]); // cantidadAjusteM
+      const und = toNumber(pick(r, adjIdx, "cantidadAjusteUnd"));
+      const m = toNumber(pick(r, adjIdx, "cantidadAjusteM"));
 
       const curr = adjExtra.get(invId) || { und: 0, m: 0 };
       curr.und += und;
@@ -147,8 +210,10 @@ export async function GET(req: Request) {
       adjExtra.set(invId, curr);
     }
 
-    // ✅ Construimos lotes con disponible = inicial + movimientos + ajustesSinMovimiento
-    let lots = inventario.map((it) => {
+    /* =========================
+       LOTES DISPONIBLES
+    ========================= */
+    let lots: Lot[] = inventarioBase.map((it) => {
       const mov = movSum.get(it.inventarioId) || { und: 0, m: 0 };
       const adj = adjExtra.get(it.inventarioId) || { und: 0, m: 0 };
 
@@ -161,21 +226,37 @@ export async function GET(req: Request) {
         almacen: it.almacen,
         productoKey: it.productoKey,
         productoDescripcion: it.productoDescripcion,
+        referencia: it.referencia,
+        color: it.color,
+        ancho: it.ancho,
+        largo: it.largo,
+        acabados: it.acabados,
         unidadBase: it.unidadBase,
         disponibleUnd,
         disponibleM,
       };
     });
 
-    // ✅ filtros por query
+    // filtrar: por productoKey exacto o por campos
     if (productoKey) lots = lots.filter((x) => x.productoKey === productoKey);
+
+    if (referencia) lots = lots.filter((x) => x.referencia === referencia);
+    if (color) lots = lots.filter((x) => x.color === color);
+    if (ancho) lots = lots.filter((x) => toStr(x.ancho) === ancho);
+    if (largo) lots = lots.filter((x) => toStr(x.largo) === largo);
+
+    if (match === "exact" && acabados) {
+      lots = lots.filter((x) => norm(x.acabados) === norm(acabados));
+    }
+    // match=compatible => ignora acabados
+
     if (almacen) lots = lots.filter((x) => x.almacen === almacen);
     if (tipoInventario) lots = lots.filter((x) => x.tipoInventario === tipoInventario);
 
-    // Solo lotes con algo disponible (opcional: si quieres ver ceros, me dices)
-    lots = lots.filter((x) => x.disponibleUnd !== 0 || x.disponibleM !== 0);
+    // solo positivos
+    lots = lots.filter((x) => x.disponibleUnd > 0 || x.disponibleM > 0);
 
-    // ✅ Totales
+    // totales
     const totals = lots.reduce(
       (acc, x) => {
         acc.und += x.disponibleUnd;
@@ -185,18 +266,23 @@ export async function GET(req: Request) {
       { und: 0, m: 0 }
     );
 
-    // ✅ También devolvemos un resumen agrupado por productoKey (útil para Planeación)
-    const byProductoKey = new Map<string, { productoKey: string; productoDescripcion: string; und: number; m: number }>();
+    // resumen por productoKey (útil)
+    const byProductoKey = new Map<
+      string,
+      { productoKey: string; productoDescripcion: string; und: number; m: number }
+    >();
+
     for (const l of lots) {
-      const curr = byProductoKey.get(l.productoKey) || {
-        productoKey: l.productoKey,
+      const key = l.productoKey || `${l.referencia}|${l.color}|${l.ancho}|${l.largo}`;
+      const curr = byProductoKey.get(key) || {
+        productoKey: key,
         productoDescripcion: l.productoDescripcion,
         und: 0,
         m: 0,
       };
       curr.und += l.disponibleUnd;
       curr.m += l.disponibleM;
-      byProductoKey.set(l.productoKey, curr);
+      byProductoKey.set(key, curr);
     }
 
     const resumen = Array.from(byProductoKey.values()).sort((a, b) =>
@@ -205,7 +291,7 @@ export async function GET(req: Request) {
 
     return NextResponse.json({
       success: true,
-      filters: { productoKey, almacen, tipoInventario },
+      filters: { productoKey, almacen, tipoInventario, referencia, color, ancho, largo, acabados, match },
       totals,
       resumen,
       lots,
@@ -215,7 +301,8 @@ export async function GET(req: Request) {
     return NextResponse.json(
       {
         success: false,
-        message: error instanceof Error ? error.message : "Error calculando inventario disponible",
+        message:
+          error instanceof Error ? error.message : "Error calculando inventario disponible",
       },
       { status: 500 }
     );
