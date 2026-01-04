@@ -3,6 +3,7 @@ import { env } from "@/lib/config/env";
 import { getSheetsClient } from "@/lib/google/googleSheets";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 type Linea = "Linea 1" | "Linea 2" | "Linea 3" | "Linea 4" | "Linea 5" | "Linea 6";
 const LINEAS: Linea[] = ["Linea 1", "Linea 2", "Linea 3", "Linea 4", "Linea 5", "Linea 6"];
@@ -14,87 +15,83 @@ function toNum(v: unknown) {
   const n = Number(v ?? 0);
   return Number.isFinite(n) ? n : 0;
 }
-
-async function ensureSheet(sheets: any, title: string) {
-  const meta = await sheets.spreadsheets.get({
-    spreadsheetId: env.SHEET_BASE_PRINCIPAL_ID,
-    fields: "sheets(properties(sheetId,title))",
-  });
-
-  const exists = (meta.data.sheets || []).some((s: any) => s?.properties?.title === title);
-  if (exists) return;
-
-  await sheets.spreadsheets.batchUpdate({
-    spreadsheetId: env.SHEET_BASE_PRINCIPAL_ID,
-    requestBody: {
-      requests: [{ addSheet: { properties: { title } } }],
-    },
-  });
-
-  // header
-  await sheets.spreadsheets.values.update({
-    spreadsheetId: env.SHEET_BASE_PRINCIPAL_ID,
-    range: `${title}!A1:F1`,
-    valueInputOption: "USER_ENTERED",
-    requestBody: {
-      values: [[
-        "linea",         // A
-        "pos",           // B
-        "ope",           // C
-        "estado",        // D
-        "fechaCreacion", // E
-        "usuario",       // F
-      ]],
-    },
-  });
+function normKey(s: string) {
+  return toStr(s).toLowerCase().replace(/\s+/g, "");
 }
 
 export async function GET() {
   try {
     const sheets = await getSheetsClient();
-    const SHEET = "ColaProduccion";
 
-    await ensureSheet(sheets, SHEET);
-
+    // 👇 OJO: el nombre de la pestaña según tu screenshot es "ColaProduccion"
     const resp = await sheets.spreadsheets.values.get({
       spreadsheetId: env.SHEET_BASE_PRINCIPAL_ID,
-      range: `${SHEET}!A2:F`,
+      range: "ColaProduccion!A:Z",
       valueRenderOption: "UNFORMATTED_VALUE",
     });
 
-    const rows: any[][] = resp.data.values || [];
+    const values = (resp.data.values || []) as any[][];
+    if (values.length < 2) {
+      const empty: Record<string, any[]> = {};
+      LINEAS.forEach((l) => (empty[l] = []));
+      return NextResponse.json({ success: true, lineas: empty, debug: { rows: values.length } });
+    }
 
-    const lineas: Record<string, any[]> = {};
-    for (const l of LINEAS) lineas[l] = [];
+    // Leemos por headers (más robusto en deploy)
+    const header = values[0].map((h) => normKey(h));
+    const idxLinea = header.indexOf("linea");
+    const idxOpe = header.indexOf("ope");
+    const idxPos = header.indexOf("pos");
+    const idxEstado = header.indexOf("estado");
 
-    for (let i = 0; i < rows.length; i++) {
-      const r = rows[i] || [];
-      const linea = toStr(r[0]) as Linea;
-      const pos = toNum(r[1]);
-      const ope = toStr(r[2]);
-      const estado = toStr(r[3]) || "En cola";
+    if (idxLinea < 0 || idxOpe < 0 || idxPos < 0) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "La hoja ColaProduccion no tiene las columnas requeridas (linea, ope, pos). Revisa encabezados.",
+          debug: { headerRaw: values[0], headerNorm: header },
+        },
+        { status: 400 }
+      );
+    }
 
-      if (!LINEAS.includes(linea)) continue;
+    const lineas: Record<string, { ope: string; pos: number; estado?: string }[]> = {};
+    LINEAS.forEach((l) => (lineas[l] = []));
+
+    for (let i = 1; i < values.length; i++) {
+      const r = values[i] || [];
+      const linea = toStr(r[idxLinea]) as Linea;
+      const ope = toStr(r[idxOpe]);
+      const pos = Math.max(1, Math.floor(toNum(r[idxPos])));
+      const estado = idxEstado >= 0 ? toStr(r[idxEstado]) : "";
+
       if (!ope) continue;
-      if (pos <= 0) continue;
+      if (!LINEAS.includes(linea)) continue;
 
-      lineas[linea].push({
-        ope,
-        pos,
-        estado,
-      });
+      lineas[linea].push({ ope, pos, estado: estado || "En cola" });
     }
 
     // ordenar por pos
     for (const l of LINEAS) {
-      lineas[l].sort((a, b) => (a.pos || 0) - (b.pos || 0));
+      lineas[l] = (lineas[l] || []).sort((a, b) => toNum(a.pos) - toNum(b.pos));
     }
 
-    return NextResponse.json({ success: true, lineas });
-  } catch (e) {
-    console.error("[colas GET]", e);
+    return NextResponse.json({
+      success: true,
+      lineas,
+      debug: {
+        totalRows: values.length - 1,
+        counts: Object.fromEntries(LINEAS.map((l) => [l, lineas[l].length])),
+      },
+    });
+  } catch (error) {
+    console.error("[produccion/colas]", error);
     return NextResponse.json(
-      { success: false, message: e instanceof Error ? e.message : "Error leyendo colas" },
+      {
+        success: false,
+        message: error instanceof Error ? error.message : "Error cargando colas",
+      },
       { status: 500 }
     );
   }
