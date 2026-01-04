@@ -1213,8 +1213,6 @@ export default function PlaneacionProgramacionProduccionPage() {
                             </div>
 
                             <div className="mt-3 text-xs text-slate-500">
-                              Mañana: aquí añadimos <b>horas estimadas</b>, <b>ciclo</b>, y botones de estado:
-                              “En producción” → “Finalizado”, y persistimos orden con backend.
                             </div>
                           </>
                         )}

@@ -1,3 +1,4 @@
+//app/api/planeacion/programacion/produccion/colas/route.ts
 import { NextResponse } from "next/server";
 import { env } from "@/lib/config/env";
 import { getSheetsClient } from "@/lib/google/googleSheets";
@@ -8,90 +9,130 @@ export const dynamic = "force-dynamic";
 type Linea = "Linea 1" | "Linea 2" | "Linea 3" | "Linea 4" | "Linea 5" | "Linea 6";
 const LINEAS: Linea[] = ["Linea 1", "Linea 2", "Linea 3", "Linea 4", "Linea 5", "Linea 6"];
 
+type ColaItem = {
+  id?: string;
+  ope: string;
+  pos: number;
+  estado?: string;
+  fechaCreacion?: string;
+  fechaUltActualizacion?: string;
+  usuario?: string;
+};
+
 function toStr(v: unknown) {
   return String(v ?? "").trim();
 }
+
 function toNum(v: unknown) {
-  const n = Number(v ?? 0);
+  // soporta 1, "1", "1.0", "1,0"
+  const s = String(v ?? "")
+    .trim()
+    .replace(/\s/g, "")
+    .replace(/\./g, "")
+    .replace(",", ".");
+  const n = Number(s);
   return Number.isFinite(n) ? n : 0;
 }
-function normKey(s: string) {
-  return toStr(s).toLowerCase().replace(/\s+/g, "");
+
+function normLinea(raw: unknown): Linea | "" {
+  // ✅ Acepta:
+  // - "Linea 1"
+  // - "Línea 1"
+  // - 1 / "1"
+  const s = toStr(raw)
+    .replace("Línea", "Linea")
+    .replace(/\s+/g, " ");
+
+  // Caso: ya viene "Linea X"
+  if (LINEAS.includes(s as Linea)) return s as Linea;
+
+  // Caso: viene solo número "1" .. "6"
+  const n = toNum(s);
+  if (n >= 1 && n <= 6) return `Linea ${n}` as Linea;
+
+  return "";
+}
+
+function buildHeaderIndex(headerRow: any[]) {
+  const idx = new Map<string, number>();
+  headerRow.forEach((h, i) => {
+    const key = toStr(h).toLowerCase();
+    if (key) idx.set(key, i);
+  });
+  return idx;
+}
+
+function pick(row: any[], idx: Map<string, number>, col: string) {
+  const i = idx.get(col.toLowerCase());
+  return i === undefined ? "" : row[i];
 }
 
 export async function GET() {
   try {
     const sheets = await getSheetsClient();
 
-    // 👇 OJO: el nombre de la pestaña según tu screenshot es "ColaProduccion"
     const resp = await sheets.spreadsheets.values.get({
       spreadsheetId: env.SHEET_BASE_PRINCIPAL_ID,
-      range: "ColaProduccion!A:Z",
+      range: "ColaProduccion!A:H",
       valueRenderOption: "UNFORMATTED_VALUE",
     });
 
     const values = (resp.data.values || []) as any[][];
-    if (values.length < 2) {
-      const empty: Record<string, any[]> = {};
-      LINEAS.forEach((l) => (empty[l] = []));
-      return NextResponse.json({ success: true, lineas: empty, debug: { rows: values.length } });
-    }
+    const headerRow = values[0] || [];
+    const dataRows = values.length > 1 ? values.slice(1) : [];
 
-    // Leemos por headers (más robusto en deploy)
-    const header = values[0].map((h) => normKey(h));
-    const idxLinea = header.indexOf("linea");
-    const idxOpe = header.indexOf("ope");
-    const idxPos = header.indexOf("pos");
-    const idxEstado = header.indexOf("estado");
+    const headerIdx = buildHeaderIndex(headerRow);
 
-    if (idxLinea < 0 || idxOpe < 0 || idxPos < 0) {
-      return NextResponse.json(
-        {
-          success: false,
-          message:
-            "La hoja ColaProduccion no tiene las columnas requeridas (linea, ope, pos). Revisa encabezados.",
-          debug: { headerRaw: values[0], headerNorm: header },
-        },
-        { status: 400 }
-      );
-    }
-
-    const lineas: Record<string, { ope: string; pos: number; estado?: string }[]> = {};
+    const lineas: Record<string, ColaItem[]> = {};
     LINEAS.forEach((l) => (lineas[l] = []));
 
-    for (let i = 1; i < values.length; i++) {
-      const r = values[i] || [];
-      const linea = toStr(r[idxLinea]) as Linea;
-      const ope = toStr(r[idxOpe]);
-      const pos = Math.max(1, Math.floor(toNum(r[idxPos])));
-      const estado = idxEstado >= 0 ? toStr(r[idxEstado]) : "";
+    for (const r of dataRows) {
+      const linea = normLinea(pick(r, headerIdx, "linea"));
+      const ope = toStr(pick(r, headerIdx, "ope"));
 
-      if (!ope) continue;
-      if (!LINEAS.includes(linea)) continue;
+      // Si tu hoja no tiene "id", usamos fallback
+      const id = toStr(pick(r, headerIdx, "id")) || `${linea}|${ope}`;
 
-      lineas[linea].push({ ope, pos, estado: estado || "En cola" });
+      if (!linea || !ope) continue;
+
+      const pos = Math.max(1, Math.floor(toNum(pick(r, headerIdx, "pos")) || 1));
+      const estado = toStr(pick(r, headerIdx, "estado")) || "En cola";
+      const fechaCreacion = toStr(pick(r, headerIdx, "fechacreacion"));
+      const fechaUltActualizacion = toStr(pick(r, headerIdx, "fechaultactualizacion"));
+      const usuario = toStr(pick(r, headerIdx, "usuario"));
+
+      lineas[linea].push({
+        id,
+        ope,
+        pos,
+        estado,
+        fechaCreacion,
+        fechaUltActualizacion,
+        usuario,
+      });
     }
 
-    // ordenar por pos
-    for (const l of LINEAS) {
-      lineas[l] = (lineas[l] || []).sort((a, b) => toNum(a.pos) - toNum(b.pos));
-    }
+    LINEAS.forEach((l) => {
+      lineas[l] = (lineas[l] || []).sort((a, b) => (a.pos || 0) - (b.pos || 0));
+    });
+
+    const counts: Record<string, number> = {};
+    LINEAS.forEach((l) => (counts[l] = (lineas[l] || []).length));
 
     return NextResponse.json({
       success: true,
       lineas,
       debug: {
-        totalRows: values.length - 1,
-        counts: Object.fromEntries(LINEAS.map((l) => [l, lineas[l].length])),
+        rowsLeidas: dataRows.length,
+        headerRaw: headerRow,
+        headerNorm: headerRow.map((x) => toStr(x).toLowerCase()),
+        counts,
       },
     });
-  } catch (error) {
-    console.error("[produccion/colas]", error);
+  } catch (e) {
+    console.error("[produccion/colas]", e);
     return NextResponse.json(
-      {
-        success: false,
-        message: error instanceof Error ? error.message : "Error cargando colas",
-      },
+      { success: false, message: e instanceof Error ? e.message : "Error leyendo colas" },
       { status: 500 }
     );
   }

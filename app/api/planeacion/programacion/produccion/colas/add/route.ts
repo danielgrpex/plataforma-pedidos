@@ -1,3 +1,4 @@
+//app/api/planeacion/programacion/produccion/colas/add/route.ts
 import { NextResponse } from "next/server";
 import { env } from "@/lib/config/env";
 import { getSheetsClient } from "@/lib/google/googleSheets";
@@ -11,8 +12,21 @@ function toStr(v: unknown) {
   return String(v ?? "").trim();
 }
 function toNum(v: unknown) {
-  const n = Number(v ?? 0);
+  const s = String(v ?? "")
+    .trim()
+    .replace(/\s/g, "")
+    .replace(/\./g, "")
+    .replace(",", ".");
+  const n = Number(s);
   return Number.isFinite(n) ? n : 0;
+}
+
+function normLinea(raw: unknown): Linea | "" {
+  const s = toStr(raw).replace("Línea", "Linea").replace(/\s+/g, " ");
+  if (LINEAS.includes(s as Linea)) return s as Linea;
+  const n = toNum(s);
+  if (n >= 1 && n <= 6) return `Linea ${n}` as Linea;
+  return "";
 }
 
 type Body = {
@@ -22,66 +36,135 @@ type Body = {
   usuario?: string;
 };
 
-async function ensureSheet(sheets: any, title: string) {
+function colLetter(idx0: number) {
+  // 0 -> A, 1 -> B ...
+  let n = idx0 + 1;
+  let s = "";
+  while (n > 0) {
+    const m = (n - 1) % 26;
+    s = String.fromCharCode(65 + m) + s;
+    n = Math.floor((n - 1) / 26);
+  }
+  return s;
+}
+
+function buildHeaderIndex(headerRow: any[]) {
+  const idx = new Map<string, number>();
+  headerRow.forEach((h, i) => {
+    const key = toStr(h).toLowerCase();
+    if (key) idx.set(key, i);
+  });
+  return idx;
+}
+
+async function ensureSheetWithHeader(sheets: any, title: string) {
   const meta = await sheets.spreadsheets.get({
     spreadsheetId: env.SHEET_BASE_PRINCIPAL_ID,
     fields: "sheets(properties(sheetId,title))",
   });
 
   const exists = (meta.data.sheets || []).some((s: any) => s?.properties?.title === title);
-  if (exists) return;
+  if (!exists) {
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId: env.SHEET_BASE_PRINCIPAL_ID,
+      requestBody: { requests: [{ addSheet: { properties: { title } } }] },
+    });
+  }
 
-  await sheets.spreadsheets.batchUpdate({
+  // Si no hay header, lo ponemos en el formato estándar A:H
+  const headerResp = await sheets.spreadsheets.values.get({
     spreadsheetId: env.SHEET_BASE_PRINCIPAL_ID,
-    requestBody: { requests: [{ addSheet: { properties: { title } } }] },
-  });
-
-  await sheets.spreadsheets.values.update({
-    spreadsheetId: env.SHEET_BASE_PRINCIPAL_ID,
-    range: `${title}!A1:F1`,
-    valueInputOption: "USER_ENTERED",
-    requestBody: {
-      values: [[
-        "linea",         // A
-        "pos",           // B
-        "ope",           // C
-        "estado",        // D
-        "fechaCreacion", // E
-        "usuario",       // F
-      ]],
-    },
-  });
-}
-
-async function readColaRows(sheets: any) {
-  const SHEET = "ColaProduccion";
-  const resp = await sheets.spreadsheets.values.get({
-    spreadsheetId: env.SHEET_BASE_PRINCIPAL_ID,
-    range: `${SHEET}!A2:F`,
+    range: `${title}!A1:H1`,
     valueRenderOption: "UNFORMATTED_VALUE",
   });
 
-  const values: any[][] = resp.data.values || [];
-  // Guardamos rowNumber real en sheet para poder actualizar posiciones
-  return values.map((r, idx) => ({
-    rowNumber: idx + 2, // porque empieza en A2
-    linea: toStr(r[0]),
-    pos: toNum(r[1]),
-    ope: toStr(r[2]),
-    estado: toStr(r[3]) || "En cola",
-    fechaCreacion: toStr(r[4]),
-    usuario: toStr(r[5]),
-  }));
+  const header = (headerResp.data.values?.[0] || []).map((x: any) => toStr(x));
+  const hasSomething = header.some((x: string) => x);
+
+  if (!hasSomething) {
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: env.SHEET_BASE_PRINCIPAL_ID,
+      range: `${title}!A1:H1`,
+      valueInputOption: "USER_ENTERED",
+      requestBody: {
+        values: [[
+          "id",
+          "linea",
+          "ope",
+          "pos",
+          "estado",
+          "fechaCreacion",
+          "fechaUltActualizacion",
+          "usuario",
+        ]],
+      },
+    });
+  }
+}
+
+async function readColaRowsDynamic(sheets: any) {
+  const SHEET = "ColaProduccion";
+
+  // leemos header completo y datos
+  const resp = await sheets.spreadsheets.values.get({
+    spreadsheetId: env.SHEET_BASE_PRINCIPAL_ID,
+    range: `${SHEET}!A1:Z`,
+    valueRenderOption: "UNFORMATTED_VALUE",
+  });
+
+  const values = (resp.data.values || []) as any[][];
+  const headerRow = values[0] || [];
+  const dataRows = values.length > 1 ? values.slice(1) : [];
+  const headerIdx = buildHeaderIndex(headerRow);
+
+  const idxId = headerIdx.get("id");
+  const idxLinea = headerIdx.get("linea");
+  const idxOpe = headerIdx.get("ope");
+  const idxPos = headerIdx.get("pos");
+  const idxEstado = headerIdx.get("estado");
+  const idxFC = headerIdx.get("fechacreacion");
+  const idxFUA = headerIdx.get("fechaultactualizacion");
+  const idxUsuario = headerIdx.get("usuario");
+
+  if (idxLinea == null || idxOpe == null || idxPos == null || idxEstado == null) {
+    throw new Error("ColaProduccion: faltan columnas obligatorias (linea/ope/pos/estado). Revisa headers.");
+  }
+
+  const rows = dataRows.map((r, i) => {
+    const rowNumber = i + 2;
+
+    const linea = normLinea(r[idxLinea]);
+    const ope = toStr(r[idxOpe]);
+    const pos = Math.max(1, Math.floor(toNum(r[idxPos]) || 1));
+    const estado = toStr(r[idxEstado]) || "En cola";
+
+    const id = idxId == null ? "" : toStr(r[idxId]);
+    const fechaCreacion = idxFC == null ? "" : toStr(r[idxFC]);
+    const fechaUltActualizacion = idxFUA == null ? "" : toStr(r[idxFUA]);
+    const usuario = idxUsuario == null ? "" : toStr(r[idxUsuario]);
+
+    return {
+      rowNumber,
+      id,
+      linea,
+      ope,
+      pos,
+      estado,
+      fechaCreacion,
+      fechaUltActualizacion,
+      usuario,
+    };
+  });
+
+  return {
+    headerRow,
+    headerIdx,
+    idxPos, // importante para hacer shift en la columna correcta
+    rows,
+  };
 }
 
 async function updateSolicitudesToEnCola(sheets: any, ope: string, usuario: string) {
-  // SolicitudesProduccion columnas (según tu hoja):
-  // A solicitudProdId
-  // ...
-  // F estado
-  // H fechaUltActualizacion
-  // I usuario
-  // J OPE
   const resp = await sheets.spreadsheets.values.get({
     spreadsheetId: env.SHEET_BASE_PRINCIPAL_ID,
     range: `SolicitudesProduccion!A:J`,
@@ -92,10 +175,10 @@ async function updateSolicitudesToEnCola(sheets: any, ope: string, usuario: stri
   if (values.length < 2) return 0;
 
   const header = values[0].map((h) => toStr(h));
-  const colEstado = header.indexOf("estado"); // F
-  const colFechaUlt = header.indexOf("fechaUltActualizacion"); // H
-  const colUsuario = header.indexOf("usuario"); // I
-  const colOpe = header.indexOf("OPE"); // J
+  const colEstado = header.indexOf("estado");
+  const colFechaUlt = header.indexOf("fechaUltActualizacion");
+  const colUsuario = header.indexOf("usuario");
+  const colOpe = header.indexOf("OPE");
 
   if (colEstado < 0 || colFechaUlt < 0 || colUsuario < 0 || colOpe < 0) {
     throw new Error("Faltan columnas en SolicitudesProduccion (estado/fechaUltActualizacion/usuario/OPE).");
@@ -105,36 +188,24 @@ async function updateSolicitudesToEnCola(sheets: any, ope: string, usuario: stri
   const data: Array<{ range: string; values: any[][] }> = [];
   let count = 0;
 
+  const toColLetter = (n: number) => colLetter(n);
+
   for (let i = 1; i < values.length; i++) {
     const row = values[i] || [];
     const rowOpe = toStr(row[colOpe]);
     if (rowOpe !== ope) continue;
 
-    const sheetRow = i + 1; // porque header es fila 1
-    // estado (colEstado) es letra? mejor escribir por letras directas:
-    // pero como no sabemos si moviste columnas, usamos índices: armamos rangos individuales por celda usando A1 notation:
-    // Convert idx->col letter:
-    const colLetter = (n: number) => {
-      let s = "";
-      n += 1;
-      while (n > 0) {
-        const m = (n - 1) % 26;
-        s = String.fromCharCode(65 + m) + s;
-        n = Math.floor((n - 1) / 26);
-      }
-      return s;
-    };
-
+    const sheetRow = i + 1;
     data.push({
-      range: `SolicitudesProduccion!${colLetter(colEstado)}${sheetRow}:${colLetter(colEstado)}${sheetRow}`,
+      range: `SolicitudesProduccion!${toColLetter(colEstado)}${sheetRow}:${toColLetter(colEstado)}${sheetRow}`,
       values: [["En cola"]],
     });
     data.push({
-      range: `SolicitudesProduccion!${colLetter(colFechaUlt)}${sheetRow}:${colLetter(colFechaUlt)}${sheetRow}`,
+      range: `SolicitudesProduccion!${toColLetter(colFechaUlt)}${sheetRow}:${toColLetter(colFechaUlt)}${sheetRow}`,
       values: [[now]],
     });
     data.push({
-      range: `SolicitudesProduccion!${colLetter(colUsuario)}${sheetRow}:${colLetter(colUsuario)}${sheetRow}`,
+      range: `SolicitudesProduccion!${toColLetter(colUsuario)}${sheetRow}:${toColLetter(colUsuario)}${sheetRow}`,
       values: [[usuario]],
     });
 
@@ -156,7 +227,7 @@ export async function POST(req: Request) {
     const body = (await req.json()) as Body;
 
     const ope = toStr(body.ope);
-    const linea = toStr(body.linea) as Linea;
+    const linea = normLinea(body.linea) as Linea;
     const usuario = toStr(body.usuario) || "planeacion";
     const mode = body?.prioridad?.mode || "final";
     const posReq = toNum(body?.prioridad?.pos);
@@ -167,12 +238,11 @@ export async function POST(req: Request) {
 
     const sheets = await getSheetsClient();
     const SHEET = "ColaProduccion";
-    await ensureSheet(sheets, SHEET);
+    await ensureSheetWithHeader(sheets, SHEET);
 
-    const all = await readColaRows(sheets);
+    const { headerRow, headerIdx, idxPos, rows } = await readColaRowsDynamic(sheets);
 
-    // Si ya existe esa OPE en alguna cola, no la duplicamos
-    const exists = all.some((r) => r.ope === ope && (r.estado || "").toLowerCase() !== "finalizado");
+    const exists = rows.some((r) => r.ope === ope && (r.estado || "").toLowerCase() !== "finalizado");
     if (exists) {
       return NextResponse.json(
         { success: false, message: `La OPE ${ope} ya está en cola o programada.` },
@@ -180,46 +250,61 @@ export async function POST(req: Request) {
       );
     }
 
-    const colaLinea = all.filter((r) => r.linea === linea).sort((a, b) => a.pos - b.pos);
+    const colaLinea = rows
+      .filter((r) => r.linea === linea)
+      .sort((a, b) => (a.pos || 0) - (b.pos || 0));
 
-    // calcular insertPos
     let insertPos = 1;
     if (mode === "inicio") insertPos = 1;
     else if (mode === "final") insertPos = colaLinea.length + 1;
     else insertPos = Math.min(Math.max(2, Math.floor(posReq) + 1 || 2), colaLinea.length + 1);
 
-    // Shift: todos con pos >= insertPos suman +1
-    const toShift = colaLinea.filter((r) => r.pos >= insertPos);
-
-    // actualizamos sus posiciones en hoja
+    // shift pos >= insertPos
+    const toShift = colaLinea.filter((r) => (r.pos || 0) >= insertPos);
     if (toShift.length) {
+      const posCol = colLetter(idxPos); // columna real de "pos"
       const data: Array<{ range: string; values: any[][] }> = [];
+
       for (const r of toShift) {
-        const newPos = r.pos + 1;
         data.push({
-          range: `${SHEET}!B${r.rowNumber}:B${r.rowNumber}`,
-          values: [[newPos]],
+          range: `${SHEET}!${posCol}${r.rowNumber}:${posCol}${r.rowNumber}`,
+          values: [[(r.pos || 0) + 1]],
         });
       }
+
       await sheets.spreadsheets.values.batchUpdate({
         spreadsheetId: env.SHEET_BASE_PRINCIPAL_ID,
         requestBody: { valueInputOption: "USER_ENTERED", data },
       });
     }
 
-    // append nuevo
+    // armar fila según header
     const now = new Date().toISOString();
+    const rowOut = new Array(Math.max(headerRow.length, 8)).fill("");
+
+    const setByName = (name: string, value: any) => {
+      const i = headerIdx.get(name.toLowerCase());
+      if (i == null) return;
+      rowOut[i] = value;
+    };
+
+    // id: lo dejamos vacío por ahora
+    setByName("linea", linea);
+    setByName("ope", ope);
+    setByName("pos", insertPos);
+    setByName("estado", "En cola");
+    setByName("fechaCreacion", now);
+    setByName("fechaUltActualizacion", now);
+    setByName("usuario", usuario);
+
     await sheets.spreadsheets.values.append({
       spreadsheetId: env.SHEET_BASE_PRINCIPAL_ID,
-      range: `${SHEET}!A:F`,
+      range: `${SHEET}!A:Z`,
       valueInputOption: "USER_ENTERED",
       insertDataOption: "INSERT_ROWS",
-      requestBody: {
-        values: [[linea, insertPos, ope, "En cola", now, usuario]],
-      },
+      requestBody: { values: [rowOut] },
     });
 
-    // ✅ actualizar SolicitudesProduccion a "En cola"
     const updatedSolicitudes = await updateSolicitudesToEnCola(sheets, ope, usuario);
 
     return NextResponse.json({

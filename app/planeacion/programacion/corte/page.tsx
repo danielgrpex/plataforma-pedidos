@@ -1,4 +1,3 @@
-// app/planeacion/programacion/corte/page.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -7,19 +6,16 @@ import Link from "next/link";
 type SolicitudCorte = {
   solicitudCorteId: string;
   pedidoKey: string;
-  rowIndexPedido: string; // viene como texto desde Sheets
+  rowIndexPedido: string; // texto desde Sheets
   productoSolicitado: string;
-  cantidadSolicitadaUnd: string;
-
+  cantidadSolicitadaUnd: string; // texto
   inventarioOrigenId?: string;
   productoOrigen?: string;
   largoOrigen?: string;
-  cantidadOrigenUnd?: string;
+  cantidadOrigenUnd?: string; // texto
   largoFinal?: string;
-
   actividades?: string;
   cantidadResultanteUnd?: string;
-
   estadoitem: string; // Pendiente | Programado | ...
   fechaCreacion?: string;
   usuario?: string;
@@ -28,11 +24,7 @@ type SolicitudCorte = {
 
 function toNumber(v?: string) {
   if (!v) return 0;
-  const s = String(v)
-    .trim()
-    .replace(/\s/g, "")
-    .replace(/\./g, "")
-    .replace(",", ".");
+  const s = String(v).trim().replace(/\s/g, "").replace(/\./g, "").replace(",", ".");
   const n = Number(s);
   return Number.isFinite(n) ? n : 0;
 }
@@ -73,18 +65,19 @@ export default function PlaneacionProgramacionCortePage() {
   const [items, setItems] = useState<SolicitudCorte[]>([]);
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState("");
-
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
   const [creating, setCreating] = useState(false);
 
-  async function loadCorte() {
+  async function loadCortePendiente() {
     setErr("");
     setMsg("");
     setLoading(true);
 
     try {
+      // ✅ Backend sugerido:
+      // GET /api/planeacion/programacion/corte/solicitudes?estado=Pendiente&q=...
       const url = `/api/planeacion/programacion/corte/solicitudes?estado=Pendiente&q=${encodeURIComponent(
         q.trim()
       )}`;
@@ -109,7 +102,7 @@ export default function PlaneacionProgramacionCortePage() {
       });
     } catch (e: any) {
       console.error(e);
-      setErr(e?.message || "Error cargando solicitudes de corte.");
+      setErr(e?.message || "Error cargando solicitudes.");
       setItems([]);
       setSelected({});
     } finally {
@@ -118,7 +111,7 @@ export default function PlaneacionProgramacionCortePage() {
   }
 
   useEffect(() => {
-    loadCorte();
+    loadCortePendiente();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -137,10 +130,10 @@ export default function PlaneacionProgramacionCortePage() {
   }, [selectedRows]);
 
   const agrupadoPorProducto = useMemo(() => {
-    const m = new Map<string, { productoSolicitado: string; und: number; count: number }>();
+    const m = new Map<string, { producto: string; und: number; count: number }>();
     for (const s of selectedRows) {
       const key = (s.productoSolicitado || "—").trim();
-      const cur = m.get(key) || { productoSolicitado: key, und: 0, count: 0 };
+      const cur = m.get(key) || { producto: key, und: 0, count: 0 };
       cur.und += toNumber(s.cantidadSolicitadaUnd);
       cur.count += 1;
       m.set(key, cur);
@@ -179,6 +172,9 @@ export default function PlaneacionProgramacionCortePage() {
       setCreating(true);
       setMsg("Creando OTE…");
 
+      // ✅ Backend sugerido:
+      // POST /api/planeacion/programacion/corte/ote/crear
+      // body: { solicitudCorteIds: string[], usuario: string }
       const res = await fetch("/api/planeacion/programacion/corte/ote/crear", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -196,7 +192,7 @@ export default function PlaneacionProgramacionCortePage() {
       const ote = String(json.ote || "").trim();
       setMsg(ote ? `✅ OTE creada: ${ote}` : "✅ OTE creada.");
 
-      await loadCorte();
+      await loadCortePendiente();
       setSelected({});
     } catch (e: any) {
       console.error(e);
@@ -213,7 +209,7 @@ export default function PlaneacionProgramacionCortePage() {
         <div>
           <h1 className="text-2xl font-semibold">Planeación · Programación · Corte</h1>
           <p className="text-sm text-slate-500">
-            Aquí listamos <b>SolicitudesCorte</b> en estado <b>Pendiente</b> y creamos <b>OTE</b>.
+            Aquí listamos <b>SolicitudesCorte</b> (<b>Pendiente</b>) y creamos <b>OTE</b>.
           </p>
         </div>
 
@@ -232,10 +228,10 @@ export default function PlaneacionProgramacionCortePage() {
             value={q}
             onChange={(e) => setQ(e.target.value)}
             className="w-full md:w-[520px] rounded-xl border border-slate-300 px-3 py-2 text-sm"
-            placeholder="Buscar por pedidoKey, productoSolicitado, inventarioOrigenId, OTE, estado…"
+            placeholder="Buscar por pedidoKey, producto, inventarioOrigen, estado, OTE…"
           />
           <button
-            onClick={loadCorte}
+            onClick={loadCortePendiente}
             className="rounded-xl border border-slate-300 px-4 py-2 text-sm hover:bg-slate-50"
             disabled={loading}
             type="button"
@@ -249,8 +245,8 @@ export default function PlaneacionProgramacionCortePage() {
             onClick={crearOTE}
             disabled={creating || !selectedIds.length}
             className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-60"
-            title="Crear OTE para las solicitudes seleccionadas"
             type="button"
+            title="Crear OTE para las solicitudes seleccionadas"
           >
             {creating ? "Creando…" : `Crear OTE (${selectedIds.length})`}
           </button>
@@ -296,9 +292,9 @@ export default function PlaneacionProgramacionCortePage() {
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {agrupadoPorProducto.map((x) => (
-                    <tr key={x.productoSolicitado}>
+                    <tr key={x.producto}>
                       <td className="py-1 pr-3">
-                        <span className="font-mono text-[12px]">{x.productoSolicitado}</span>
+                        <span className="font-mono text-[12px]">{x.producto}</span>
                       </td>
                       <td className="py-1 text-right font-semibold">
                         {x.und.toLocaleString("es-CO")}
@@ -321,23 +317,18 @@ export default function PlaneacionProgramacionCortePage() {
               <tr>
                 <th className="px-4 py-3 text-left font-medium">
                   <div className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={allChecked}
-                      onChange={toggleAll}
-                      disabled={!items.length}
-                    />
+                    <input type="checkbox" checked={allChecked} onChange={toggleAll} disabled={!items.length} />
                     <span>Sel</span>
                   </div>
                 </th>
                 <th className="px-4 py-3 text-left font-medium">Solicitud</th>
                 <th className="px-4 py-3 text-left font-medium">Pedido</th>
-                <th className="px-4 py-3 text-left font-medium">Producto (solicitado)</th>
+                <th className="px-4 py-3 text-left font-medium">Producto solicitado</th>
                 <th className="px-4 py-3 text-right font-medium">UND</th>
-                <th className="px-4 py-3 text-left font-medium">Origen</th>
+                <th className="px-4 py-3 text-left font-medium">Inventario origen</th>
                 <th className="px-4 py-3 text-left font-medium">Estado</th>
                 <th className="px-4 py-3 text-left font-medium">OTE</th>
-                <th className="px-4 py-3 text-left font-medium">Actualización</th>
+                <th className="px-4 py-3 text-left font-medium">Creación</th>
               </tr>
             </thead>
 
@@ -382,20 +373,17 @@ export default function PlaneacionProgramacionCortePage() {
                     </td>
 
                     <td className="px-4 py-3">
-                      <div className="font-medium break-all">{s.pedidoKey}</div>
-                      <Link
-                        className="text-xs text-indigo-600 underline underline-offset-2 hover:text-indigo-700"
-                        href={`/planeacion/pedido/${encodeURIComponent(s.pedidoKey)}`}
-                        title="Abrir pedido"
-                      >
-                        Ver pedido
-                      </Link>
+                      <div className="font-medium">{s.pedidoKey}</div>
+                      <div className="text-xs text-slate-400">Usuario: {s.usuario || "—"}</div>
                     </td>
 
                     <td className="px-4 py-3">
-                      <span className="font-mono text-[12px]">
-                        {s.productoSolicitado || "—"}
-                      </span>
+                      <div className="font-mono text-[12px]">{s.productoSolicitado || "—"}</div>
+                      {(s.productoOrigen || s.largoOrigen) && (
+                        <div className="mt-1 text-xs text-slate-500">
+                          Origen: {s.productoOrigen || "—"} {s.largoOrigen ? `· ${s.largoOrigen}` : ""}
+                        </div>
+                      )}
                     </td>
 
                     <td className="px-4 py-3 text-right font-semibold">
@@ -403,15 +391,8 @@ export default function PlaneacionProgramacionCortePage() {
                     </td>
 
                     <td className="px-4 py-3 text-xs text-slate-600">
-                      <div>
-                        Inv: <b>{s.inventarioOrigenId || "—"}</b>
-                      </div>
-                      <div className="text-slate-500">
-                        {s.productoOrigen ? `Prod: ${s.productoOrigen}` : "Prod: —"}
-                      </div>
-                      <div className="text-slate-500">
-                        {s.largoOrigen ? `Largo: ${s.largoOrigen}` : "Largo: —"}
-                      </div>
+                      <div>ID: {s.inventarioOrigenId || "—"}</div>
+                      <div>UND origen: {toNumber(s.cantidadOrigenUnd).toLocaleString("es-CO")}</div>
                     </td>
 
                     <td className="px-4 py-3">{s.estadoitem || "—"}</td>
@@ -427,8 +408,7 @@ export default function PlaneacionProgramacionCortePage() {
                     </td>
 
                     <td className="px-4 py-3 text-xs text-slate-500">
-                      <div>Creación: {formatFechaColombia(s.fechaCreacion)}</div>
-                      <div>Usuario: {s.usuario || "—"}</div>
+                      {formatFechaColombia(s.fechaCreacion)}
                     </td>
                   </tr>
                 ))}
@@ -437,8 +417,8 @@ export default function PlaneacionProgramacionCortePage() {
         </div>
 
         <div className="px-4 py-3 border-t border-slate-100 text-xs text-slate-500">
-          Esta tabla lee <b>SolicitudesCorte</b> filtrando <b>estadoitem=Pendiente</b>. Al crear OTE se actualiza la
-          columna <b>OTE</b> y el estado a <b>Programado</b> para los ítems seleccionados.
+          Esta tabla lee <b>SolicitudesCorte</b> filtrando <b>estadoitem=Pendiente</b>. Al crear OTE se asigna el mismo
+          consecutivo a todos los ítems seleccionados.
         </div>
       </section>
     </main>

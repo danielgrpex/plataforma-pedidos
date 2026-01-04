@@ -1,3 +1,4 @@
+//lib/auth/permissions.ts
 import type { Role } from "./roles";
 
 export const MODULE_PERMISSIONS: Record<string, Role[]> = {

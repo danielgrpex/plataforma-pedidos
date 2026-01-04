@@ -1,3 +1,4 @@
+//app/api/inventario/opciones-bulk/route.ts
 import { NextResponse } from "next/server";
 import { env } from "@/lib/config/env";
 import { getSheetsClient } from "@/lib/google/googleSheets";

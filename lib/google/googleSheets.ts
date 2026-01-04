@@ -3,7 +3,11 @@ import path from "path";
 import { google } from "googleapis";
 import { env } from "@/lib/config/env";
 
-const SCOPES = ["https://www.googleapis.com/auth/spreadsheets"];
+const SCOPES = [
+  "https://www.googleapis.com/auth/spreadsheets",
+  "https://www.googleapis.com/auth/drive.readonly",
+];
+
 
 let sheetsClient: ReturnType<typeof google.sheets> | null = null;
 
