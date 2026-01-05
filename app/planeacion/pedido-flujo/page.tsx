@@ -1,8 +1,12 @@
 // app/planeacion/pedido-flujo/page.tsx
+// app/planeacion/pedido-flujo/page.tsx
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+
+// ✅ Esto evita prerender estático (Vercel no intenta exportarlo)
+export const dynamic = "force-dynamic";
 
 type PedidoItem = {
   rowIndex1Based: number;
@@ -19,13 +23,10 @@ type Pedido = {
   consecutivo?: string;
   cliente?: string;
   oc?: string;
-  // ⬇️ importante: puede venir como número (Sheets) o string
-  fechaRequerida?: string | number;
-  driveFolderLink?: string;
+  fechaRequerida?: string;
 
   observacionesPlaneacion?: string;
   revisadoPlaneacion?: string;
-  fechaRevisionPlaneacion?: string;
 
   estadoPlaneacion?: string;
   estado?: string;
@@ -42,44 +43,6 @@ async function safeJsonFetch<T>(url: string): Promise<T | null> {
   } catch {
     return null;
   }
-}
-
-/** ============================
- *  FECHA: soporta ISO y serial Sheets (ej 46030)
- *  ============================ */
-function formatFechaColombia(value?: string | number) {
-  if (value === null || value === undefined || value === "") return "—";
-
-  // Si viene como número o string numérica => serial Google Sheets
-  const s = String(value).trim();
-  if (/^\d+$/.test(s)) {
-    const serial = Number(s);
-    // Excel/Sheets serial date: days since 1899-12-30
-    const date = new Date(Math.round((serial - 25569) * 86400 * 1000));
-    if (!Number.isNaN(date.getTime())) {
-      const day = String(date.getDate()).padStart(2, "0");
-      const month = date
-        .toLocaleDateString("es-CO", { month: "short" })
-        .replace(".", "")
-        .replace(/^\w/, (c) => c.toUpperCase());
-      const year = date.getFullYear();
-      return `${day}-${month}-${year}`;
-    }
-  }
-
-  // ISO u otros parseables
-  const d = new Date(s);
-  if (!Number.isNaN(d.getTime())) {
-    const day = String(d.getDate()).padStart(2, "0");
-    const month = d
-      .toLocaleDateString("es-CO", { month: "short" })
-      .replace(".", "")
-      .replace(/^\w/, (c) => c.toUpperCase());
-    const year = d.getFullYear();
-    return `${day}-${month}-${year}`;
-  }
-
-  return s;
 }
 
 // === PDF (igual a Comercial) ===
@@ -111,7 +74,58 @@ async function verPdf(pdfPath: string) {
   window.open(json.url, "_blank", "noopener,noreferrer");
 }
 
-export default function PedidoFlujoPlaneacionPage() {
+// ✅ Formato fecha tipo 04-Ene-2026 (si viene número o string)
+function formatFechaColombia(value?: string) {
+  if (!value) return "—";
+
+  // si viene como número serial de sheets convertido a string
+  if (/^\d+(\.\d+)?$/.test(value)) {
+    const n = Number(value);
+    if (Number.isFinite(n)) {
+      const ms = Math.round((n - 25569) * 86400 * 1000);
+      const d = new Date(ms);
+      const day = String(d.getUTCDate()).padStart(2, "0");
+      const month = d
+        .toLocaleDateString("es-CO", { month: "short" })
+        .replace(".", "")
+        .replace(/^\w/, (c) => c.toUpperCase());
+      const year = d.getUTCFullYear();
+      return `${day}-${month}-${year}`;
+    }
+  }
+
+  // YYYY-MM-DD (sin zona)
+  const m = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (m) {
+    const y = Number(m[1]);
+    const mo = Number(m[2]);
+    const d = Number(m[3]);
+    const date = new Date(y, mo - 1, d);
+    const day = String(date.getDate()).padStart(2, "0");
+    const month = date
+      .toLocaleDateString("es-CO", { month: "short" })
+      .replace(".", "")
+      .replace(/^\w/, (c) => c.toUpperCase());
+    const year = date.getFullYear();
+    return `${day}-${month}-${year}`;
+  }
+
+  // ISO u otro
+  const d2 = new Date(value);
+  if (!Number.isNaN(d2.getTime())) {
+    const day = String(d2.getDate()).padStart(2, "0");
+    const month = d2
+      .toLocaleDateString("es-CO", { month: "short" })
+      .replace(".", "")
+      .replace(/^\w/, (c) => c.toUpperCase());
+    const year = d2.getFullYear();
+    return `${day}-${month}-${year}`;
+  }
+
+  return value;
+}
+
+function PedidoFlujoInner() {
   const router = useRouter();
   const sp = useSearchParams();
   const pedidoKey = (sp.get("pedidoKey") || "").trim();
@@ -167,7 +181,6 @@ export default function PedidoFlujoPlaneacionPage() {
     return () => {
       mounted = false;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pedidoKey]);
 
   // Cargar pdfPath desde Comercial (para botón "Ver PDF")
@@ -253,7 +266,6 @@ export default function PedidoFlujoPlaneacionPage() {
           </p>
         </div>
 
-        {/* Tabs */}
         <div className="rounded-2xl bg-white p-3 shadow-sm ring-1 ring-black/5">
           <div className="grid grid-cols-2 gap-2 rounded-xl bg-neutral-50 p-2">
             <button
@@ -299,7 +311,6 @@ export default function PedidoFlujoPlaneacionPage() {
 
             {!loading && !err && pedido && tab === "validar" && (
               <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
-                {/* Left */}
                 <div className="space-y-6">
                   <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-black/5">
                     <div className="flex items-start justify-between gap-3">
@@ -342,9 +353,7 @@ export default function PedidoFlujoPlaneacionPage() {
                       </div>
                       <div className="flex justify-between gap-3">
                         <span className="text-neutral-600">Fecha requerida</span>
-                        <span className="font-medium">
-                          {formatFechaColombia(pedido.fechaRequerida)}
-                        </span>
+                        <span className="font-medium">{formatFechaColombia(pedido.fechaRequerida)}</span>
                       </div>
                     </div>
                   </div>
@@ -358,10 +367,7 @@ export default function PedidoFlujoPlaneacionPage() {
                     <div className="mt-4 space-y-3">
                       {pedido.items?.length ? (
                         pedido.items.map((it) => (
-                          <div
-                            key={it.rowIndex1Based}
-                            className="rounded-xl border border-neutral-200 bg-white p-4"
-                          >
+                          <div key={it.rowIndex1Based} className="rounded-xl border border-neutral-200 bg-white p-4">
                             <div className="text-sm font-semibold text-neutral-900">{it.producto}</div>
                             <div className="mt-1 text-xs text-neutral-600">
                               UND: <span className="font-medium">{it.cantidadUnd}</span> · M:{" "}
@@ -379,7 +385,6 @@ export default function PedidoFlujoPlaneacionPage() {
                   </div>
                 </div>
 
-                {/* Right */}
                 <div className="space-y-6">
                   <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-black/5">
                     <h2 className="text-base font-semibold">Validación de Planeación</h2>
@@ -416,11 +421,6 @@ export default function PedidoFlujoPlaneacionPage() {
                         Rechazar
                       </button>
                     </div>
-
-                    <p className="mt-3 text-xs text-neutral-500">
-                      Aprobar marca <span className="font-medium">Revisado Planeación = SI</span>. Rechazar marca{" "}
-                      <span className="font-medium">Estado = Rechazado - Comercial</span>.
-                    </p>
                   </div>
                 </div>
               </div>
@@ -454,5 +454,23 @@ export default function PedidoFlujoPlaneacionPage() {
         </div>
       </main>
     </div>
+  );
+}
+
+export default function PedidoFlujoPlaneacionPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-neutral-50">
+          <main className="mx-auto w-full max-w-6xl px-6 py-8">
+            <div className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-black/5 text-sm text-neutral-600">
+              Cargando…
+            </div>
+          </main>
+        </div>
+      }
+    >
+      <PedidoFlujoInner />
+    </Suspense>
   );
 }
