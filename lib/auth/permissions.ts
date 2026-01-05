@@ -41,7 +41,7 @@ function normEmail(email?: string | null) {
  */
 const PRODUCCION_SCOPE_BY_EMAIL: Record<string, ProduccionScope> = {
   "daniel.alfonso@inplastgr.com": "coordinador_planta",
-
+  "produccionextrusion@inplastgr.com@inplastgr.com": "coordinador_planta",
   // Supervisores
   // "supervisor1@inplastgr.com": "supervisor",
 

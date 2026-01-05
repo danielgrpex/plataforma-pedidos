@@ -198,9 +198,9 @@ export default function PlaneacionListadoPage() {
                     <td className="px-4 py-3">
                       <Link
                         className="text-indigo-600 underline underline-offset-2 hover:text-indigo-700"
-                        href={`/planeacion/pedido/${encodeURIComponent(p.pedidoKey)}`}
+                        href={`/planeacion/pedido-flujo?pedidoKey=${encodeURIComponent(p.pedidoKey)}`}
                       >
-                        Clasificar
+                        Abrir
                       </Link>
                     </td>
                   </tr>

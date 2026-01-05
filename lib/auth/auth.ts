@@ -14,9 +14,14 @@ type UserRole =
 
 const getRoleFromEmail = (email: string): UserRole => {
   const map: Record<string, Exclude<UserRole, null>> = {
-    "asistextrusionysoplado@inplastgr.com": "comercial",
-    "dalfonsoleon1@gmail.com": "planeacion",
-    "paolasuarezorjuela@gmail.com": "produccion",
+    "ventas@inplastgr.com": "comercial",
+    "asesor.comercial@inplastgr.com": "comercial",
+    "mercadeo@inplastgr.com": "comercial",
+    "asesorventas@inplastgr.com": "comercial",
+    "elbertalfonso@inplastgr.com": "comercial",
+    "sandraisabelalfonso@inplastgr.com": "comercial",
+    "asistextrusionysoplado@inplastgr.com": "planeacion",
+    "produccionextrusion@inplastgr.com@inplastgr.com": "produccion",
     "soplado@inplastgr.com": "logistica",
 
     // admin total
