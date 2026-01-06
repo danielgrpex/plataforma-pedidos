@@ -1,5 +1,10 @@
+//app/api/produccion/solicitudes/en-cola/route.ts
 import { NextResponse } from "next/server";
 import { getBasePrincipalRange } from "@/lib/google/googleSheets";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 function rowsToObjects(values: any[][]) {
   if (!values?.length) return [];
@@ -16,16 +21,11 @@ export async function GET() {
     const values = await getBasePrincipalRange("SolicitudesProduccion!A:Z");
     const rows = rowsToObjects(values);
 
-    const enCola = rows.filter(
-      (r) => String(r.estado ?? "").trim() === "En cola"
-    );
+    const enCola = rows.filter((r) => String(r.estado ?? "").trim() === "En cola");
 
     return NextResponse.json(enCola, { status: 200 });
   } catch (e) {
     console.error("[GET solicitudes en cola]", e);
-    return NextResponse.json(
-      { error: "Error leyendo SolicitudesProduccion" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Error leyendo SolicitudesProduccion" }, { status: 500 });
   }
 }

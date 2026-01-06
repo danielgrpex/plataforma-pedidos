@@ -1,5 +1,10 @@
+//app/api/produccion/solicitudes-corte/generadas/route.ts
 import { NextResponse } from "next/server";
 import { getBasePrincipalRange } from "@/lib/google/googleSheets";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 function rowsToObjects(values: any[][]) {
   if (!values?.length) return [];
