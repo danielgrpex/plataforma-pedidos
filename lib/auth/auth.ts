@@ -19,6 +19,8 @@ const getRoleFromEmail = (email: string): UserRole => {
     "mercadeo@inplastgr.com": "comercial",
     "asesorventas@inplastgr.com": "comercial",
     "elbertalfonso@inplastgr.com": "comercial",
+    "gerencialogistica@inplastgr.com": "comercial",
+    "almacenes@inplastgr.com": "comercial",
     "sandraisabelalfonso@inplastgr.com": "comercial",
     "asistextrusionysoplado@inplastgr.com": "planeacion",
     "produccionextrusion@inplastgr.com@inplastgr.com": "produccion",
