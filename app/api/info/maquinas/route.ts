@@ -1,5 +1,10 @@
+//app/api/info/maquinas/route.ts
 import { NextResponse } from "next/server";
 import { getInfoSheetRange } from "@/lib/google/googleSheets";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 function toIdNombreFromSingleOrHeader(values: any[][]) {
   if (!values?.length) return [];
@@ -14,7 +19,6 @@ function toIdNombreFromSingleOrHeader(values: any[][]) {
 
   const colCount = Math.max(...clean.map((r) => (r ? r.length : 0)));
 
-  // ✅ Caso REAL tuyo: 1 sola columna => id = nombre = valor
   if (colCount <= 1) {
     return dataRows
       .map((r) => String(r?.[0] ?? "").trim())
@@ -60,12 +64,16 @@ export async function GET() {
   try {
     const values = await getInfoSheetRange("Maquinas!A:Z");
     const data = toIdNombreFromSingleOrHeader(values);
-    return NextResponse.json(data, { status: 200 });
+
+    return NextResponse.json(data, {
+      status: 200,
+      headers: { "Cache-Control": "no-store, max-age=0, s-maxage=0, must-revalidate" },
+    });
   } catch (e) {
     console.error("[GET maquinas]", e);
     return NextResponse.json(
       { error: "Error leyendo Maquinas" },
-      { status: 500 }
+      { status: 500, headers: { "Cache-Control": "no-store, max-age=0, s-maxage=0, must-revalidate" } }
     );
   }
 }

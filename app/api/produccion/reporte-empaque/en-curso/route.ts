@@ -2,11 +2,15 @@
 import { NextResponse } from "next/server";
 import { getBasePrincipalRange } from "@/lib/google/googleSheets";
 
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 function rowsWithIndex(values: any[][]) {
   if (!values?.length) return { headers: [], rows: [] as any[] };
   const headers = (values[0] ?? []).map((h) => String(h ?? "").trim());
   const rows = values.slice(1).map((row, i) => {
-    const obj: Record<string, any> = { rowIndex: i + 2 }; // 1 header + data => empieza en 2
+    const obj: Record<string, any> = { rowIndex: i + 2 };
     headers.forEach((h, idx) => (obj[h] = row?.[idx] ?? ""));
     return obj;
   });
@@ -24,15 +28,22 @@ export async function GET() {
         rowIndex: r.rowIndex,
         Timestamp: String(r["Timestamp"] ?? ""),
         OTE: String(r["OTE"] ?? ""),
+        OPE: String(r["OPE"] ?? ""), // ✅ por si también estás usando OPE ahora
         rowIndexPedido: String(r["rowIndexPedido"] ?? ""),
         productoSolicitado: String(r["productoSolicitado"] ?? ""),
         Trabajador: String(r["Trabajador"] ?? ""),
         Estado: String(r["Estado"] ?? ""),
       }));
 
-    return NextResponse.json(enCurso, { status: 200 });
+    return NextResponse.json(enCurso, {
+      status: 200,
+      headers: { "Cache-Control": "no-store, max-age=0, s-maxage=0, must-revalidate" },
+    });
   } catch (e) {
     console.error("[GET empaque en-curso]", e);
-    return NextResponse.json({ error: "Error leyendo ReporteOperarioEq" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Error leyendo ReporteOperarioEq" },
+      { status: 500, headers: { "Cache-Control": "no-store, max-age=0, s-maxage=0, must-revalidate" } }
+    );
   }
 }
