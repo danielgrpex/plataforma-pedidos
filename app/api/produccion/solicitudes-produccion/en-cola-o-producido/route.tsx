@@ -2,15 +2,19 @@
 import { NextResponse } from "next/server";
 import { getBasePrincipalRange } from "@/lib/google/googleSheets";
 
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 function rowsWithIndex(values: any[][]) {
-  if (!values?.length) return { headers: [], rows: [] as any[] };
+  if (!values?.length) return { rows: [] as any[] };
   const headers = (values[0] ?? []).map((h) => String(h ?? "").trim());
   const rows = values.slice(1).map((row, i) => {
     const obj: Record<string, any> = { rowIndex: i + 2 };
     headers.forEach((h, idx) => (obj[h] = row?.[idx] ?? ""));
     return obj;
   });
-  return { headers, rows };
+  return { rows };
 }
 
 export async function GET() {
@@ -18,7 +22,8 @@ export async function GET() {
     const values = await getBasePrincipalRange("SolicitudesProduccion!A:Z");
     const { rows } = rowsWithIndex(values);
 
-    const permitidos = new Set(["Generada", "Producido"]);
+    // ✅ según tu regla:
+    const permitidos = new Set(["Generada", "Producido"]); // si quieres solo Generada, deja Set(["Generada"])
 
     const list = rows
       .filter((r) => permitidos.has(String(r.estado ?? "").trim()))
@@ -34,9 +39,15 @@ export async function GET() {
       }))
       .filter((x) => x.solicitudProdId);
 
-    return NextResponse.json(list, { status: 200 });
+    return NextResponse.json(list, {
+      status: 200,
+      headers: { "Cache-Control": "no-store, max-age=0, s-maxage=0, must-revalidate" },
+    });
   } catch (e) {
-    console.error("[GET solicitudes-produccion Generada/producido]", e);
-    return NextResponse.json({ error: "Error leyendo SolicitudesProduccion" }, { status: 500 });
+    console.error("[GET SolicitudesProduccion Generada/Producido]", e);
+    return NextResponse.json(
+      { error: "Error leyendo SolicitudesProduccion" },
+      { status: 500, headers: { "Cache-Control": "no-store, max-age=0, s-maxage=0, must-revalidate" } }
+    );
   }
 }

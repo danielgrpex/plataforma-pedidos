@@ -35,9 +35,15 @@ export async function GET() {
       }))
       .filter((r) => r.solicitudCorteId);
 
-    return NextResponse.json(generadas, { status: 200 });
+    return NextResponse.json(generadas, {
+      status: 200,
+      headers: { "Cache-Control": "no-store, max-age=0, s-maxage=0, must-revalidate" },
+    });
   } catch (e) {
     console.error("[GET SolicitudesCorte Generadas]", e);
-    return NextResponse.json({ error: "Error leyendo SolicitudesCorte" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Error leyendo SolicitudesCorte" },
+      { status: 500, headers: { "Cache-Control": "no-store, max-age=0, s-maxage=0, must-revalidate" } }
+    );
   }
 }
