@@ -123,7 +123,7 @@ export default function IniciarReporteEmpaquePage() {
   }, []);
 
   const validate = (): string | null => {
-    if (!ordenKey) return "Selecciona una orden (OTE Generada u OPE En cola/Producido).";
+    if (!ordenKey) return "Selecciona una orden (OTE Generada u OPE Generada/Producido).";
     if (!trabajadorId) return "Selecciona el trabajador.";
     return null;
   };
@@ -201,7 +201,7 @@ export default function IniciarReporteEmpaquePage() {
               Iniciar — Reporte Operario Empaque
             </h1>
             <p className="mt-1 text-sm text-neutral-600">
-              Selecciona una orden (OTE Generada u OPE En cola/Producido) y el trabajador para iniciar empaque.
+              Selecciona una orden (OTE Generada u OPE Generada/Producido) y el trabajador para iniciar empaque.
             </p>
           </div>
 

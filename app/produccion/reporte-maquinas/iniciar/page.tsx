@@ -95,7 +95,7 @@ export default function IniciarReporteMaquinasPage() {
       }
 
       const finalSolicitudes = sol.filter(
-        (s) => String(s.estado ?? "").trim() === "En cola"
+        (s) => String(s.estado ?? "").trim() === "Generada"
       );
 
       setSolicitudes(finalSolicitudes);
@@ -131,7 +131,7 @@ export default function IniciarReporteMaquinasPage() {
   }, [tab]);
 
   const validate = (): string | null => {
-    if (!solicitudId) return "Selecciona una orden (estado: En cola).";
+    if (!solicitudId) return "Selecciona una orden (estado: Generada).";
     if (!trabajadorId) return "Selecciona el trabajador.";
 
     if (tab === "alistamiento") {
@@ -228,7 +228,7 @@ const onIniciar = async () => {
               Iniciar — Registro Operativo Máquinas
             </h1>
             <p className="mt-1 text-sm text-neutral-600">
-              Selecciona una orden en cola, el trabajador y completa los campos
+              Selecciona una orden generada, el trabajador y completa los campos
               según el tipo de inicio.
             </p>
           </div>
