@@ -1,10 +1,13 @@
+//app/api/info/herramentales/route.ts
 import { NextResponse } from "next/server";
 import { getInfoSheetRange } from "@/lib/google/googleSheets";
+
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 function toIdNombreFromSingleOrHeader(values: any[][]) {
   if (!values?.length) return [];
 
-  // Quitamos filas vacías
   const clean = values.filter((r) =>
     (r ?? []).some((c: any) => String(c ?? "").trim() !== "")
   );
@@ -15,7 +18,6 @@ function toIdNombreFromSingleOrHeader(values: any[][]) {
 
   const colCount = Math.max(...clean.map((r) => (r ? r.length : 0)));
 
-  // ✅ Caso REAL tuyo: 1 sola columna => id = nombre = valor
   if (colCount <= 1) {
     return dataRows
       .map((r) => String(r?.[0] ?? "").trim())
@@ -23,7 +25,6 @@ function toIdNombreFromSingleOrHeader(values: any[][]) {
       .map((v) => ({ id: v, nombre: v }));
   }
 
-  // Caso con headers tipo ID/NOMBRE
   const headersLower = headerRow.map((h) => h.toLowerCase());
   const hasHeader = headersLower.some((x) =>
     ["id", "nombre", "name", "codigo", "código", "descripcion", "descripción"].includes(x)
@@ -50,7 +51,6 @@ function toIdNombreFromSingleOrHeader(values: any[][]) {
       .filter((x) => x.id && x.nombre);
   }
 
-  // Caso sin header pero con 2 columnas
   return dataRows
     .map((r) => ({
       id: String(r?.[0] ?? "").trim(),
@@ -61,16 +61,21 @@ function toIdNombreFromSingleOrHeader(values: any[][]) {
 
 export async function GET() {
   try {
-    // ✅ OJO: tu pestaña se llama "Herramentales"
     const values = await getInfoSheetRange("Herramentales!A:Z");
     const data = toIdNombreFromSingleOrHeader(values);
-    return NextResponse.json(data, { status: 200 });
+
+    return NextResponse.json(data, {
+      status: 200,
+      headers: {
+        "Cache-Control":
+          "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0, s-maxage=0",
+      },
+    });
   } catch (e) {
     console.error("[GET herramentales]", e);
     return NextResponse.json(
       { error: "Error leyendo Herramentales" },
-      { status: 500 }
+      { status: 500, headers: { "Cache-Control": "no-store" } }
     );
   }
 }
-

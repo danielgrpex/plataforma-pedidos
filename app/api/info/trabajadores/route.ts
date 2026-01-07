@@ -1,10 +1,13 @@
+//app/api/info/trabajadores/route.ts
 import { NextResponse } from "next/server";
 import { getInfoSheetRange } from "@/lib/google/googleSheets";
+
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 function valuesToIdNombre(values: any[][]) {
   if (!values?.length) return [];
 
-  // Si la primera fila parece header, la usamos
   const firstRow = values[0].map((x: any) => String(x ?? "").toLowerCase());
   const hasHeader = firstRow.some((x: string) =>
     ["id", "nombre", "name", "codigo", "código"].includes(x)
@@ -19,7 +22,9 @@ function valuesToIdNombre(values: any[][]) {
       headers[0];
 
     const nombreKey =
-      headers.find((h) => ["nombre", "name", "descripcion", "descripción"].includes(h.toLowerCase())) ??
+      headers.find((h) =>
+        ["nombre", "name", "descripcion", "descripción"].includes(h.toLowerCase())
+      ) ??
       headers[1] ??
       headers[0];
 
@@ -35,7 +40,6 @@ function valuesToIdNombre(values: any[][]) {
       .filter((x) => x.id && x.nombre);
   }
 
-  // Si NO hay header: asumimos 1ra col = id, 2da col = nombre
   return values
     .slice(1)
     .map((r) => ({
@@ -49,12 +53,22 @@ export async function GET() {
   try {
     const values = await getInfoSheetRange("Trabajadores!A:Z");
     const data = valuesToIdNombre(values);
-    return NextResponse.json(data, { status: 200 });
+
+    return NextResponse.json(data, {
+      status: 200,
+      headers: {
+        "Cache-Control":
+          "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0, s-maxage=0",
+      },
+    });
   } catch (e) {
     console.error("[GET trabajadores]", e);
     return NextResponse.json(
       { error: "Error leyendo Trabajadores" },
-      { status: 500 }
+      {
+        status: 500,
+        headers: { "Cache-Control": "no-store" },
+      }
     );
   }
 }
