@@ -2,6 +2,9 @@
 import { NextResponse } from "next/server";
 import { getBasePrincipalRange } from "@/lib/google/googleSheets";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 function rowsWithIndex(values: any[][]) {
   if (!values?.length) return { headers: [], rows: [] as any[] };
   const headers = (values[0] ?? []).map((h) => String(h ?? "").trim());
@@ -15,7 +18,8 @@ function rowsWithIndex(values: any[][]) {
 
 export async function GET() {
   try {
-    const values = await getBasePrincipalRange("SolicitudesProduccion!A:Z");
+    // ✅ NO uses A:Z si tu hoja crece. Usa A:ZZ
+    const values = await getBasePrincipalRange("SolicitudesProduccion!A:ZZ");
     const { rows } = rowsWithIndex(values);
 
     const permitidos = new Set(["En cola", "Producido"]);
@@ -33,9 +37,17 @@ export async function GET() {
         OPE: String(r.OPE ?? ""),
       }));
 
-    return NextResponse.json(list, { status: 200 });
+    return NextResponse.json(list, {
+      status: 200,
+      headers: {
+        "Cache-Control": "no-store, no-cache, max-age=0, s-maxage=0, must-revalidate",
+      },
+    });
   } catch (e) {
     console.error("[GET prod en cola/producido]", e);
-    return NextResponse.json({ error: "Error leyendo SolicitudesProduccion" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Error leyendo SolicitudesProduccion" },
+      { status: 500, headers: { "Cache-Control": "no-store" } }
+    );
   }
 }
