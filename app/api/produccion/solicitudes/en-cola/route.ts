@@ -25,7 +25,7 @@ export async function GET() {
 
     return NextResponse.json(enCola, { status: 200 });
   } catch (e) {
-    console.error("[GET solicitudes en cola]", e);
+    console.error("[GET solicitudes generada]", e);
     return NextResponse.json({ error: "Error leyendo SolicitudesProduccion" }, { status: 500 });
   }
 }
