@@ -1,17 +1,18 @@
+//app/produccion/reporte-empaque/iniciar/page.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
-type OrdenCorte = {
-  solicitudCorteId: string;
+type OrdenEmpaque = {
+  tipo: "corte" | "produccion";
+  solicitudId: string;          // solicitudCorteId o solicitudProdId
   pedidoKey: string;
   rowIndexPedido: number | string;
-  productoSolicitado: string;
-  cantidadSolicitadaUnd: number | string;
-  estadoitem: string;
-  usuario?: string;
-  OTE?: string;
+  producto: string;             // productoSolicitado o productoKey
+  cantidadUnd: number | string; // cantidadSolicitadaUnd o cantidadUND
+  estado: string;               // estadoitem o estado
+  code: string;                 // OTE u OPE
 };
 
 type Trabajador = { id: string; nombre: string };
@@ -32,31 +33,32 @@ export default function IniciarReporteEmpaquePage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  const [ordenes, setOrdenes] = useState<OrdenCorte[]>([]);
+  const [ordenes, setOrdenes] = useState<OrdenEmpaque[]>([]);
   const [trabajadores, setTrabajadores] = useState<Trabajador[]>([]);
 
-  const [ordenId, setOrdenId] = useState("");
+  const [ordenKey, setOrdenKey] = useState(""); // "corte:ID" | "produccion:ID"
   const [trabajadorId, setTrabajadorId] = useState("");
 
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitOk, setSubmitOk] = useState<string | null>(null);
 
-  const ordenSeleccionada = useMemo(
-    () => ordenes.find((o) => o.solicitudCorteId === ordenId) ?? null,
-    [ordenes, ordenId]
-  );
+  const ordenSeleccionada = useMemo(() => {
+    if (!ordenKey) return null;
+    const [tipo, id] = ordenKey.split(":");
+    return ordenes.find((o) => o.tipo === (tipo as any) && o.solicitudId === id) ?? null;
+  }, [ordenes, ordenKey]);
 
-const ordenLabel = (o: OrdenCorte) => {
-  const ote = String(o.OTE ?? "").trim() || "SIN-OTE";
-  const idx = String(o.rowIndexPedido ?? "").trim() || "-";
-  const prod = String(o.productoSolicitado ?? "").trim();
-  const und = String(o.cantidadSolicitadaUnd ?? "").trim();
-  return `${ote} — ${idx} — ${prod} — ${und} UND`;
-};
-
+  const ordenLabel = (o: OrdenEmpaque) => {
+    const tipoTxt = o.tipo === "corte" ? "OTE" : "OPE";
+    const code = String(o.code ?? "").trim() || `SIN-${tipoTxt}`;
+    const idx = String(o.rowIndexPedido ?? "").trim() || "-";
+    const prod = String(o.producto ?? "").trim();
+    const und = String(o.cantidadUnd ?? "").trim();
+    return `${tipoTxt}: ${code} — ${idx} — ${prod} — ${und} UND`;
+  };
 
   const resetForm = () => {
-    setOrdenId("");
+    setOrdenKey("");
     setTrabajadorId("");
   };
 
@@ -67,14 +69,15 @@ const ordenLabel = (o: OrdenCorte) => {
       setLoading(true);
       setLoadError(null);
 
-      const [ords, trab] = await Promise.all([
-        safeJsonFetch<OrdenCorte[]>("/api/produccion/solicitudes-corte/generadas"),
+      const [ordsCorte, ordsProd, trab] = await Promise.all([
+        safeJsonFetch<any[]>("/api/produccion/solicitudes-corte/generadas"),
+        safeJsonFetch<any[]>("/api/produccion/solicitudes-produccion/en-cola-o-producido"),
         safeJsonFetch<Trabajador[]>("/api/info/trabajadores"),
       ]);
 
       if (!mounted) return;
 
-      if (!ords || !trab) {
+      if (!ordsCorte || !ordsProd || !trab) {
         setLoadError("No se pudieron cargar datos. Revisa endpoints/credenciales.");
         setOrdenes([]);
         setTrabajadores([]);
@@ -82,7 +85,33 @@ const ordenLabel = (o: OrdenCorte) => {
         return;
       }
 
-      setOrdenes(ords);
+      // map corte -> OrdenEmpaque
+      const corte: OrdenEmpaque[] = ordsCorte.map((o) => ({
+        tipo: "corte",
+        solicitudId: String(o.solicitudCorteId ?? ""),
+        pedidoKey: String(o.pedidoKey ?? ""),
+        rowIndexPedido: o.rowIndexPedido ?? "",
+        producto: String(o.productoSolicitado ?? ""),
+        cantidadUnd: o.cantidadSolicitadaUnd ?? "",
+        estado: String(o.estadoitem ?? ""),
+        code: String(o.OTE ?? ""),
+      }));
+
+      // map producción -> OrdenEmpaque
+      const prod: OrdenEmpaque[] = ordsProd.map((o) => ({
+        tipo: "produccion",
+        solicitudId: String(o.solicitudProdId ?? ""),
+        pedidoKey: String(o.pedidoKey ?? ""),
+        rowIndexPedido: o.rowIndexPedido ?? "",
+        producto: String(o.productoKey ?? ""),
+        cantidadUnd: o.cantidadUND ?? "",
+        estado: String(o.estado ?? ""),
+        code: String(o.OPE ?? ""),
+      }));
+
+      const merged = [...corte, ...prod];
+
+      setOrdenes(merged);
       setTrabajadores(trab);
       setLoading(false);
     };
@@ -94,7 +123,7 @@ const ordenLabel = (o: OrdenCorte) => {
   }, []);
 
   const validate = (): string | null => {
-    if (!ordenId) return "Selecciona una orden (estado: Generada).";
+    if (!ordenKey) return "Selecciona una orden (OTE Generada u OPE En cola/Producido).";
     if (!trabajadorId) return "Selecciona el trabajador.";
     return null;
   };
@@ -104,36 +133,60 @@ const ordenLabel = (o: OrdenCorte) => {
     setSubmitOk(null);
 
     const err = validate();
-    if (err) {
-      setSubmitError(err);
-      return;
-    }
+    if (err) return setSubmitError(err);
 
-    const trabajadorNombre =
-      trabajadores.find((t) => t.id === trabajadorId)?.nombre ?? "";
+    const trabajadorNombre = trabajadores.find((t) => t.id === trabajadorId)?.nombre ?? "";
+
+    const [tipo, solicitudId] = ordenKey.split(":");
 
     try {
       const res = await fetch("/api/produccion/reporte-empaque/iniciar", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          solicitudCorteId: ordenId,
+          tipo,          // "corte" | "produccion"
+          solicitudId,   // id real
           trabajadorNombre,
         }),
       });
 
       const json = await res.json();
-      if (!res.ok) {
-        setSubmitError(json?.error ?? "No se pudo iniciar.");
-        return;
-      }
+      if (!res.ok) return setSubmitError(json?.error ?? "No se pudo iniciar.");
 
       setSubmitOk("✅ Inicio Empaque registrado. Estado: En curso.");
       resetForm();
 
-      // Recargar lista por si quieres que se mantenga igual (no cambia estadoitem aún, eso lo definimos después)
-      const ords = await safeJsonFetch<OrdenCorte[]>("/api/produccion/solicitudes-corte/generadas");
-      if (ords) setOrdenes(ords);
+      // recargar órdenes
+      const [ordsCorte, ordsProd] = await Promise.all([
+        safeJsonFetch<any[]>("/api/produccion/solicitudes-corte/generadas"),
+        safeJsonFetch<any[]>("/api/produccion/solicitudes-produccion/en-cola-o-producido"),
+      ]);
+
+      if (ordsCorte && ordsProd) {
+        const corte: OrdenEmpaque[] = ordsCorte.map((o) => ({
+          tipo: "corte",
+          solicitudId: String(o.solicitudCorteId ?? ""),
+          pedidoKey: String(o.pedidoKey ?? ""),
+          rowIndexPedido: o.rowIndexPedido ?? "",
+          producto: String(o.productoSolicitado ?? ""),
+          cantidadUnd: o.cantidadSolicitadaUnd ?? "",
+          estado: String(o.estadoitem ?? ""),
+          code: String(o.OTE ?? ""),
+        }));
+
+        const prod: OrdenEmpaque[] = ordsProd.map((o) => ({
+          tipo: "produccion",
+          solicitudId: String(o.solicitudProdId ?? ""),
+          pedidoKey: String(o.pedidoKey ?? ""),
+          rowIndexPedido: o.rowIndexPedido ?? "",
+          producto: String(o.productoKey ?? ""),
+          cantidadUnd: o.cantidadUND ?? "",
+          estado: String(o.estado ?? ""),
+          code: String(o.OPE ?? ""),
+        }));
+
+        setOrdenes([...corte, ...prod]);
+      }
     } catch {
       setSubmitError("Error de red al iniciar.");
     }
@@ -148,7 +201,7 @@ const ordenLabel = (o: OrdenCorte) => {
               Iniciar — Reporte Operario Empaque
             </h1>
             <p className="mt-1 text-sm text-neutral-600">
-              Selecciona una orden generada (OTE) y el trabajador para iniciar empaque.
+              Selecciona una orden (OTE Generada u OPE En cola/Producido) y el trabajador para iniciar empaque.
             </p>
           </div>
 
@@ -170,7 +223,7 @@ const ordenLabel = (o: OrdenCorte) => {
                 </div>
               </div>
               <div className="pb-3 text-xs text-neutral-500">
-                {loading ? "Cargando…" : `${ordenes.length} órdenes generadas`}
+                {loading ? "Cargando…" : `${ordenes.length} órdenes`}
               </div>
             </div>
           </div>
@@ -183,16 +236,16 @@ const ordenLabel = (o: OrdenCorte) => {
             )}
 
             <div className="grid gap-4 md:grid-cols-2">
-              <Field label="Orden (Generada)">
+              <Field label="Orden (OTE/OPE)">
                 <select
-                  value={ordenId}
-                  onChange={(e) => setOrdenId(e.target.value)}
+                  value={ordenKey}
+                  onChange={(e) => setOrdenKey(e.target.value)}
                   className="w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-neutral-900/10"
                   disabled={loading || !!loadError}
                 >
                   <option value="">Selecciona…</option>
                   {ordenes.map((o) => (
-                    <option key={o.solicitudCorteId} value={o.solicitudCorteId}>
+                    <option key={`${o.tipo}:${o.solicitudId}`} value={`${o.tipo}:${o.solicitudId}`}>
                       {ordenLabel(o)}
                     </option>
                   ))}
@@ -200,7 +253,7 @@ const ordenLabel = (o: OrdenCorte) => {
 
                 {ordenSeleccionada && (
                   <p className="mt-1 text-xs text-neutral-600">
-                    ID: <span className="font-medium">{ordenSeleccionada.solicitudCorteId}</span>
+                    Tipo: <span className="font-medium">{ordenSeleccionada.tipo}</span>
                     {" "}• Pedido: <span className="font-medium">{ordenSeleccionada.pedidoKey}</span>
                   </p>
                 )}
