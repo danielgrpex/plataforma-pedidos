@@ -92,13 +92,28 @@ export default function EntregarAlmacenPage() {
             </p>
           </div>
 
-          <button
-            type="button"
-            onClick={() => router.push("/produccion/entregas-almacen")}
-            className="rounded-xl border border-neutral-200 bg-white px-4 py-2 text-sm font-medium shadow-sm hover:bg-neutral-50"
-          >
-            Volver
-          </button>
+<div className="flex items-center gap-2">
+  <button
+    type="button"
+    onClick={() =>
+      router.push(
+        `/produccion/entregas-almacen/entregar-stock?usuario=${encodeURIComponent(usuarioEntrega || "")}`
+      )
+    }
+    className="rounded-xl bg-neutral-900 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-neutral-800"
+  >
+    Entregar Stock
+  </button>
+
+  <button
+    type="button"
+    onClick={() => router.push("/produccion/entregas-almacen")}
+    className="rounded-xl border border-neutral-200 bg-white px-4 py-2 text-sm font-medium shadow-sm hover:bg-neutral-50"
+  >
+    Volver
+  </button>
+</div>
+
         </div>
 
         {/* Selector usuario */}
