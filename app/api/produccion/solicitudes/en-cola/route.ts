@@ -21,7 +21,7 @@ export async function GET() {
     const values = await getBasePrincipalRange("SolicitudesProduccion!A:Z");
     const rows = rowsToObjects(values);
 
-    const enCola = rows.filter((r) => String(r.estado ?? "").trim() === "En cola");
+    const enCola = rows.filter((r) => String(r.estado ?? "").trim() === "Generada");
 
     return NextResponse.json(enCola, { status: 200 });
   } catch (e) {

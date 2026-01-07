@@ -18,7 +18,7 @@ export async function GET() {
     const values = await getBasePrincipalRange("SolicitudesProduccion!A:Z");
     const { rows } = rowsWithIndex(values);
 
-    const permitidos = new Set(["En cola", "Producido"]);
+    const permitidos = new Set(["Generada", "Producido"]);
 
     const list = rows
       .filter((r) => permitidos.has(String(r.estado ?? "").trim()))
