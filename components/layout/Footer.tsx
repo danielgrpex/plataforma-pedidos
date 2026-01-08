@@ -1,3 +1,4 @@
+//components/layout/Footer.tsx
 export function Footer() {
   return (
     <footer className="mt-0 border-t border-slate-200 bg-white/50 backdrop-blur py-8">
