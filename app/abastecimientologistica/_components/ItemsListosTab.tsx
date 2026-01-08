@@ -4,6 +4,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { HeaderBlock } from "./ui";
 
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+
 type DespachableItem = {
   pedidosKey: string;
   pedidoRowIndex: number;

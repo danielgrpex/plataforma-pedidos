@@ -1,6 +1,10 @@
 //app/abastecimientologistica/_components/ui.tsx
 import React from "react";
 
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 export function cx(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
 }

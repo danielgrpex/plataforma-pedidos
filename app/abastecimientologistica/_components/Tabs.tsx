@@ -3,6 +3,11 @@
 
 import React from "react";
 
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+
 export type TabKey =
   | "despachosItems"
   | "itemsListos"
