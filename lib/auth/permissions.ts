@@ -6,7 +6,7 @@ import type { Role } from "./roles";
  * NO se toca, solo se deja igual.
  */
 export const MODULE_PERMISSIONS: Record<string, Role[]> = {
-  comercial: ["comercial", "admin"],
+  comercial: ["comercial", "planeacion", "admin"],
   planeacion: ["planeacion", "admin"],
   produccion: ["produccion", "admin"],
   abastecimientologistica: ["comercial", "logistica", "admin"], // usa el nombre real de tu ruta
