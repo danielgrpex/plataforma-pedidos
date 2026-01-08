@@ -6,10 +6,10 @@ import type { Role } from "./roles";
  * NO se toca, solo se deja igual.
  */
 export const MODULE_PERMISSIONS: Record<string, Role[]> = {
-  comercial: ["comercial", "planeacion", "admin"],
+  comercial: ["comercial", "admin"],
   planeacion: ["planeacion", "admin"],
   produccion: ["produccion", "admin"],
-  abastecimientologistica: ["logistica", "admin"], // usa el nombre real de tu ruta
+  abastecimientologistica: ["comercial", "logistica", "admin"], // usa el nombre real de tu ruta
 };
 
 /**
