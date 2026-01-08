@@ -22,7 +22,7 @@ export async function GET() {
     const values = await getBasePrincipalRange("SolicitudesProduccion!A:ZZ");
     const { rows } = rowsWithIndex(values);
 
-    const permitidos = new Set(["En cola", "Producido"]);
+    const permitidos = new Set(["Generada", "Producido"]);
 
     const list = rows
       .filter((r) => permitidos.has(String(r.estado ?? "").trim()))
@@ -44,7 +44,7 @@ export async function GET() {
       },
     });
   } catch (e) {
-    console.error("[GET prod en cola/producido]", e);
+    console.error("[GET prod generada/producido]", e);
     return NextResponse.json(
       { error: "Error leyendo SolicitudesProduccion" },
       { status: 500, headers: { "Cache-Control": "no-store" } }
