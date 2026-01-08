@@ -22,7 +22,7 @@ async function safeJsonFetch<T>(url: string): Promise<T | null> {
   }
 }
 
-const ACTIVIDADES = ["Cortar","Cortar Iman","Despestañar","Empacar","Encintar","Ensamblar","Imantar","Limpiar","Marcar","Perforar","Rebabar","Rebordear","Reempacar","Revisar","Sellar Bolsa","Troquelar","Descargue Material","Limpieza Planta","Inventario"];
+const ACTIVIDADES = ["Cortar","Cortar Iman","Despestañar","Empacar","Encintar","Ensamblar","Imantar","Limpiar","Marcar","Perforar","Rebabar","Rebordear","Reempacar","Revisar","Sellar Bolsa","Troquelar","Descargue Material","Limpieza Planta","Inventario","Encartonar"];
 
 export default function FinalizarReporteEmpaquePage() {
   const router = useRouter();

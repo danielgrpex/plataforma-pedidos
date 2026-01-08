@@ -463,10 +463,10 @@ function TabButton({
       type="button"
       onClick={onClick}
       className={[
-        "rounded-lg px-4 py-2 text-sm font-medium transition whitespace-nowrap",
+        "rounded-lg px-4 py-2 text-sm font-medium transition",
         active
-          ? "bg-white text-neutral-900 shadow-sm ring-1 ring-black/5"
-          : "text-neutral-600 hover:text-neutral-900",
+          ? "bg-emerald-600 text-white shadow-sm ring-1 ring-emerald-600"
+          : "text-neutral-600 hover:bg-white hover:text-neutral-900",
       ].join(" ")}
       aria-pressed={active}
     >
@@ -474,6 +474,7 @@ function TabButton({
     </button>
   );
 }
+
 
 function Field({
   label,
