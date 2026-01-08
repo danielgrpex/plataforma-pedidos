@@ -2,6 +2,16 @@
 import { NextResponse } from "next/server";
 import { google } from "googleapis";
 
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+const NO_STORE_HEADERS = {
+  "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+  Pragma: "no-cache",
+  Expires: "0",
+};
+
 const SPREADSHEET_ID = process.env.SHEET_BASE_PRINCIPAL_ID;
 
 const SHEET_PEDIDOS = "Pedidos";
@@ -147,7 +157,7 @@ export async function GET() {
     if (pedH.length === 0) {
       return NextResponse.json(
         { success: false, message: `La hoja ${SHEET_PEDIDOS} no tiene headers` },
-        { status: 500 }
+        { status: 500, headers: NO_STORE_HEADERS }
       );
     }
 
@@ -171,7 +181,7 @@ export async function GET() {
           success: false,
           message: `No pude mapear columnas mínimas en ${SHEET_PEDIDOS} (pedidosKey, Cantidad(und), Estado, Producto).`,
         },
-        { status: 500 }
+        { status: 500, headers: NO_STORE_HEADERS }
       );
     }
 
@@ -226,7 +236,6 @@ export async function GET() {
 
       const productoKey = buildProductoKeyFromPedido({ producto, referencia, color, ancho, largo });
 
-      // ✅ Salida EXACTA para la UI
       out.push({
         pedidosKey,
         pedidoRowIndex,
@@ -250,12 +259,15 @@ export async function GET() {
       a.pedidosKey !== b.pedidosKey ? a.pedidosKey.localeCompare(b.pedidosKey) : a.pedidoRowIndex - b.pedidoRowIndex
     );
 
-    return NextResponse.json({ success: true, count: out.length, items: out });
+    return NextResponse.json(
+      { success: true, count: out.length, items: out },
+      { status: 200, headers: NO_STORE_HEADERS }
+    );
   } catch (err: any) {
     console.error(err);
     return NextResponse.json(
       { success: false, message: err?.message || "Error en /logistica/despachables" },
-      { status: 500 }
+      { status: 500, headers: NO_STORE_HEADERS }
     );
   }
 }
