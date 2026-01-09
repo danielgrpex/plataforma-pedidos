@@ -36,7 +36,7 @@ export function TopBar() {
         {/* Navegación por rol */}
         <nav className="flex items-center gap-4 text-sm">
           {/* Comercial */}
-          {(!isAuthed || role === "comercial" || role === "planeacion" || role === "admin") && (
+          {(!isAuthed || role === "comercial" || role === "planeacion" || role === "logistica" || role === "admin") && (
             <Link
               href={isAuthed ? "/comercial" : guestHref}
               className="text-slate-700 hover:text-emerald-600"

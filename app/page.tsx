@@ -12,7 +12,7 @@ export default function HomePage() {
 
   // ✅ permisos reales (solo aplican cuando está logueado)
   const canAccess = {
-    comercial: role === "comercial" || role === "planeacion" || role === "admin",
+    comercial: role === "comercial" || role === "planeacion" || role === "logistica" || role === "admin",
     planeacion: role === "planeacion" || role === "admin",
     produccion: role === "produccion" || role === "admin",
     logistica: role === "logistica" || role === "admin",

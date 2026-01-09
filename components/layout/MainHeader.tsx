@@ -17,7 +17,7 @@ export function MainHeader() {
 
   // 🔐 permisos reales (solo aplican si está logueado)
   const can = {
-    comercial: role === "comercial" || role === "planeacion" || role === "admin",
+    comercial: role === "comercial" || role === "planeacion" || role === "logistica" ||role === "admin",
     planeacion: role === "planeacion" || role === "admin",
     produccion: role === "produccion" || role === "admin",
     logistica: role === "logistica" || role === "admin",
