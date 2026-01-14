@@ -1,4 +1,4 @@
-//app/abastecimientologistica/_components/DespachosItemsTab.tsx
+// app/abastecimientologistica/_components/DespachosItemsTab.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -46,6 +46,10 @@ export function DespachosItemsTab() {
   const [usuario, setUsuario] = useState("");
   const [selectedKey, setSelectedKey] = useState(""); // `${pedidosKey}||${row}`
   const [cantidad, setCantidad] = useState("0");
+
+  // ✅ NUEVO: fecha real despacho (YYYY-MM-DD)
+  const [fechaRealDespacho, setFechaRealDespacho] = useState("");
+
   const [transporte, setTransporte] = useState("");
   const [guia, setGuia] = useState("");
   const [factura, setFactura] = useState("");
@@ -101,6 +105,10 @@ export function DespachosItemsTab() {
           pedidosKey: selected.pedidosKey,
           pedidoRowIndex: selected.pedidoRowIndex,
           cantidadDespachadaUnd: safeNumber(cantidad),
+
+          // ✅ NUEVO: fecha real (opcional)
+          fechaRealDespacho: fechaRealDespacho || undefined,
+
           transporte: transporte.trim(),
           guia: guia.trim(),
           factura: factura.trim(),
@@ -124,6 +132,7 @@ export function DespachosItemsTab() {
       // reset parcial
       setCantidad("0");
       setObservaciones("");
+      setFechaRealDespacho("");
 
       // refrescar
       await cargarDespachables();
@@ -179,6 +188,19 @@ export function DespachosItemsTab() {
               </option>
             ))}
           </select>
+        </Field>
+
+        {/* ✅ NUEVO: Fecha real de despacho */}
+        <Field label="Fecha real de despacho (opcional)">
+          <input
+            type="date"
+            value={fechaRealDespacho}
+            onChange={(e) => setFechaRealDespacho(e.target.value)}
+            className="h-10 w-full rounded-xl border border-neutral-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-orange-600/10"
+          />
+          <div className="mt-1 text-xs text-neutral-500">
+            Si el despacho ocurrió días atrás, selecciona la fecha real.
+          </div>
         </Field>
 
         {selected && (

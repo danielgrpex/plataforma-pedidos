@@ -9,6 +9,9 @@ type DespacharBody = {
   pedidoRowIndex: number;        // ✅ FILA REAL en Sheet Pedidos (1-based). NO es columna.
   cantidadDespachadaUnd: number; // parcial o total
 
+  // ✅ NUEVO: fecha real despacho (ISO o YYYY-MM-DD)
+  fechaRealDespacho?: string;
+
   transporte?: string;
   guia?: string;
   factura?: string;
@@ -38,6 +41,24 @@ function norm(v: any) {
 
 function uid(prefix: string) {
   return `${prefix}-${Math.random().toString(16).slice(2)}-${Date.now().toString(16)}`;
+}
+
+// ✅ NUEVO: parse de fecha real despacho
+function toISODateTimeOrThrow(input: any) {
+  const raw = String(input ?? "").trim();
+  if (!raw) return null;
+
+  // Acepta "YYYY-MM-DD" o ISO completo
+  // Si viene solo fecha, lo convertimos a mediodía UTC para evitar desfases por zona horaria
+  let d: Date;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    d = new Date(`${raw}T12:00:00.000Z`);
+  } else {
+    d = new Date(raw);
+  }
+
+  if (isNaN(d.getTime())) throw new Error("fechaRealDespacho inválida");
+  return d.toISOString();
 }
 
 async function getSheets() {
@@ -217,19 +238,29 @@ export async function POST(req: Request) {
 
     // ✅ fila real: mínimo 2 (porque fila 1 son headers)
     if (!pedidoRowIndex || pedidoRowIndex < 2) {
-      return NextResponse.json({ success: false, message: "pedidoRowIndex inválido (debe ser fila real >= 2)" }, { status: 400 });
+      return NextResponse.json(
+        { success: false, message: "pedidoRowIndex inválido (debe ser fila real >= 2)" },
+        { status: 400 }
+      );
     }
 
     if (cantidadDespachadaUnd <= 0) {
       return NextResponse.json({ success: false, message: "cantidadDespachadaUnd debe ser > 0" }, { status: 400 });
     }
 
+    // ✅ NUEVO: fecha real opcional; si no viene, usa ahora
+    const fechaRealDespachoISO = toISODateTimeOrThrow(body.fechaRealDespacho);
+    const fechaISO = fechaRealDespachoISO ?? new Date().toISOString();
+
     // =========================
     // 1) Leer PEDIDOS y ubicar la fila exacta (por fila, no por columna)
     // =========================
     const { headers: pedHeaders, rows: pedRows } = await readSheetAll(sheets, SHEET_PEDIDOS);
     if (pedHeaders.length === 0) {
-      return NextResponse.json({ success: false, message: `La hoja ${SHEET_PEDIDOS} no tiene headers` }, { status: 500 });
+      return NextResponse.json(
+        { success: false, message: `La hoja ${SHEET_PEDIDOS} no tiene headers` },
+        { status: 500 }
+      );
     }
 
     const idxPk = findCol(pedHeaders, COL_PEDIDOS.pedidosKey);
@@ -241,7 +272,6 @@ export async function POST(req: Request) {
     const idxFactura = findCol(pedHeaders, COL_PEDIDOS.factura);
     const idxRemision = findCol(pedHeaders, COL_PEDIDOS.remision);
 
-    // ✅ OJO: NO existe "pedidoRowIndex" como columna
     if (idxPk < 0 || idxCant < 0 || idxEstado < 0) {
       return NextResponse.json(
         { success: false, message: `No pude mapear columnas mínimas en ${SHEET_PEDIDOS} (pedidosKey, Cantidad (und), Estado).` },
@@ -249,7 +279,6 @@ export async function POST(req: Request) {
       );
     }
 
-    // pedidoRowIndex es 1-based en sheet, pedRows es 0-based sin headers:
     const pedRowIndex0 = pedidoRowIndex - 2;
     if (pedRowIndex0 < 0 || pedRowIndex0 >= pedRows.length) {
       return NextResponse.json(
@@ -260,7 +289,6 @@ export async function POST(req: Request) {
 
     const pedRow = pedRows[pedRowIndex0];
 
-    // Validación de integridad: la fila debe corresponder al pedidosKey
     const pkEnFila = norm(pedRow[idxPk]);
     if (pkEnFila !== pedidosKey) {
       return NextResponse.json(
@@ -281,11 +309,14 @@ export async function POST(req: Request) {
     }
 
     // =========================
-    // 2) Calcular YA despachado desde DESPACHOS (por pedidosKey + pedidoRowIndex)
+    // 2) Calcular YA despachado desde DESPACHOS
     // =========================
     const { headers: desHeaders, rows: desRows } = await readSheetAll(sheets, SHEET_DESPACHOS);
     if (desHeaders.length === 0) {
-      return NextResponse.json({ success: false, message: `La hoja ${SHEET_DESPACHOS} no tiene headers` }, { status: 500 });
+      return NextResponse.json(
+        { success: false, message: `La hoja ${SHEET_DESPACHOS} no tiene headers` },
+        { status: 500 }
+      );
     }
 
     const dPk = findCol(desHeaders, COL_DESPACHOS.pedidosKey);
@@ -326,7 +357,6 @@ export async function POST(req: Request) {
     // 3) Append en DESPACHOS
     // =========================
     const despachoId = uid("DESP");
-    const fechaISO = new Date().toISOString();
 
     const outDes: Record<string, any> = {};
     const hDesId = pickHeader(desHeaders, COL_DESPACHOS.despachoId);
@@ -342,7 +372,7 @@ export async function POST(req: Request) {
     const hDesObs = pickHeader(desHeaders, COL_DESPACHOS.observaciones);
 
     if (hDesId) outDes[hDesId] = despachoId;
-    if (hDesFecha) outDes[hDesFecha] = fechaISO;
+    if (hDesFecha) outDes[hDesFecha] = fechaISO; // ✅
     if (hDesPk) outDes[hDesPk] = pedidosKey;
     if (hDesRow) outDes[hDesRow] = pedidoRowIndex;
     if (hDesCant) outDes[hDesCant] = cantidadDespachadaUnd;
@@ -356,11 +386,14 @@ export async function POST(req: Request) {
     await appendRow(sheets, SHEET_DESPACHOS, buildRow(desHeaders, outDes));
 
     // =========================
-    // 4) Append en MOVIMIENTOS (Salida por despacho)
+    // 4) Append en MOVIMIENTOS
     // =========================
     const { headers: movHeaders } = await readSheetAll(sheets, SHEET_MOV);
     if (movHeaders.length === 0) {
-      return NextResponse.json({ success: false, message: `La hoja ${SHEET_MOV} no tiene headers` }, { status: 500 });
+      return NextResponse.json(
+        { success: false, message: `La hoja ${SHEET_MOV} no tiene headers` },
+        { status: 500 }
+      );
     }
 
     const movId = uid("MOV");
@@ -380,8 +413,6 @@ export async function POST(req: Request) {
     const hUser = pickHeader(movHeaders, COL_MOV.usuario);
 
     if (hMovId) outMov[hMovId] = movId;
-
-    // 🔹 inventarioId: lo conectamos después (cuando amarre inventario a pedido)
     if (hInv) outMov[hInv] = "";
 
     if (hTipo) outMov[hTipo] = "Despacho";
@@ -393,19 +424,19 @@ export async function POST(req: Request) {
 
     if (hRef) outMov[hRef] = `${pedidosKey} - row ${pedidoRowIndex}`;
     if (hMot) outMov[hMot] = completo ? "Despacho completo" : "Despacho parcial";
-    if (hFecha) outMov[hFecha] = fechaISO;
+    if (hFecha) outMov[hFecha] = fechaISO; // ✅
     if (hUser) outMov[hUser] = usuario;
 
     await appendRow(sheets, SHEET_MOV, buildRow(movHeaders, outMov));
 
     // =========================
-    // 5) Update en PEDIDOS (Estado + Fecha Real Despacho + docs)
+    // 5) Update en PEDIDOS
     // =========================
     const updates: Array<{ colIndex0Based: number; value: any }> = [];
 
     updates.push({ colIndex0Based: idxEstado, value: completo ? "Despachado" : "Despacho parcial" });
 
-    if (idxFechaReal >= 0) updates.push({ colIndex0Based: idxFechaReal, value: fechaISO });
+    if (idxFechaReal >= 0) updates.push({ colIndex0Based: idxFechaReal, value: fechaISO }); // ✅
     if (show(idxTransp, transporte)) updates.push({ colIndex0Based: idxTransp, value: transporte });
     if (show(idxGuia, guia)) updates.push({ colIndex0Based: idxGuia, value: guia });
     if (show(idxFactura, factura)) updates.push({ colIndex0Based: idxFactura, value: factura });
