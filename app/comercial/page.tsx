@@ -214,7 +214,7 @@ export default function ComercialListadoPage() {
               <tr>
                 <th className="px-4 py-3 text-left font-medium">#</th>
                 <th className="px-4 py-3 text-left font-medium">Fecha</th>
-                <th className="px-4 py-3 text-left font-medium">Cliente</th>
+                <th className="px-4 py-3 text-left font-medium">Cliente - Dirección</th>
                 <th className="px-4 py-3 text-left font-medium">OC</th>
                 <th className="px-4 py-3 text-left font-medium">Asesor</th>
                 <th className="px-4 py-3 text-left font-medium">Estado</th>
