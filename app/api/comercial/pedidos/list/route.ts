@@ -1,3 +1,4 @@
+// app/api/comercial/pedidos/list/route.ts
 import { NextResponse } from "next/server";
 import { env } from "@/lib/config/env";
 import { getSheetsClient } from "@/lib/google/googleSheets";
@@ -9,12 +10,16 @@ type PedidoListItem = {
   fechaSolicitud: string;
   asesor: string;
   cliente: string;
+
+  // ✅ NUEVO (E)
+  direccionDespacho: string;
+
   oc: string;
   estado: string;
   pdfPath: string;
   createdBy: string;
 
-  // ✅ NUEVO (AL)
+  // ✅ AL
   pedidoKey: string;
 
   // opcional (AM)
@@ -59,6 +64,10 @@ export async function GET(req: Request) {
       const fechaSolicitud = toStr(r[1]);
       const asesor = toStr(r[2]);
       const cliente = toStr(r[3]);
+
+      // ✅ E: Dirección y ciudad de despacho
+      const direccionDespacho = toStr(r[4]);
+
       const oc = toStr(r[5]);          // F
       const estadoRow = toStr(r[23]);  // X
       const pdfPath = toStr(r[35]);    // AJ
@@ -72,6 +81,7 @@ export async function GET(req: Request) {
         fechaSolicitud,
         asesor,
         cliente,
+        direccionDespacho,
         oc,
         estado: estadoRow,
         pdfPath,
@@ -93,6 +103,7 @@ export async function GET(req: Request) {
         return (
           i.consecutivo.toLowerCase().includes(qq) ||
           i.cliente.toLowerCase().includes(qq) ||
+          i.direccionDespacho.toLowerCase().includes(qq) || // ✅ NUEVO
           i.oc.toLowerCase().includes(qq) ||
           i.asesor.toLowerCase().includes(qq)
         );
@@ -129,7 +140,11 @@ export async function GET(req: Request) {
   } catch (error) {
     console.error("[pedidos/list]", error);
     return NextResponse.json(
-      { success: false, message: error instanceof Error ? error.message : "Error listando pedidos" },
+      {
+        success: false,
+        message:
+          error instanceof Error ? error.message : "Error listando pedidos",
+      },
       { status: 500 }
     );
   }

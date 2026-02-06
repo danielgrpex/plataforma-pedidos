@@ -10,6 +10,10 @@ type PedidoListItem = {
   fechaSolicitud: string;
   asesor: string;
   cliente: string;
+
+  // ✅ NUEVO
+  direccionDespacho: string;
+
   oc: string;
   estado: string;
   pdfPath: string;
@@ -121,7 +125,10 @@ export default function ComercialListadoPage() {
     window.open(json.url, "_blank", "noopener,noreferrer");
   }
 
-  const empty = useMemo(() => !loading && items.length === 0, [loading, items.length]);
+  const empty = useMemo(
+    () => !loading && items.length === 0,
+    [loading, items.length]
+  );
 
   return (
     <main className="mx-auto max-w-6xl px-6 py-8">
@@ -235,10 +242,26 @@ export default function ComercialListadoPage() {
 
               {!loading &&
                 items.map((p, idx) => (
-                  <tr key={`${p.consecutivo}-${idx}`} className="hover:bg-slate-50">
+                  <tr
+                    key={`${p.consecutivo}-${idx}`}
+                    className="hover:bg-slate-50"
+                  >
                     <td className="px-4 py-3">{p.consecutivo || "—"}</td>
-                    <td className="px-4 py-3">{formatFechaColombia(p.fechaSolicitud)}</td>
-                    <td className="px-4 py-3">{p.cliente || "—"}</td>
+                    <td className="px-4 py-3">
+                      {formatFechaColombia(p.fechaSolicitud)}
+                    </td>
+
+                    {/* ✅ Cliente - Dirección */}
+                    <td className="px-4 py-3">
+                      {p.cliente
+                        ? `${p.cliente}${
+                            p.direccionDespacho
+                              ? ` - ${p.direccionDespacho}`
+                              : ""
+                          }`
+                        : "—"}
+                    </td>
+
                     <td className="px-4 py-3">{p.oc || "—"}</td>
                     <td className="px-4 py-3">{p.asesor || "—"}</td>
                     <td className="px-4 py-3">{p.estado || "—"}</td>
