@@ -1,5 +1,4 @@
 // app/planeacion/pedido-flujo/page.tsx
-// app/planeacion/pedido-flujo/page.tsx
 "use client";
 
 import { Suspense, useEffect, useMemo, useState } from "react";
@@ -10,12 +9,18 @@ export const dynamic = "force-dynamic";
 
 type PedidoItem = {
   rowIndex1Based: number;
-  productoKey: string;
+
+  // ✅ En algunos endpoints puede venir vacío/undefined → lo hacemos opcional para evitar error TS
+  productoKey?: string;
+
   producto: string;
   cantidadUnd: string;
   cantidadM: string;
   inventarioDisponibleUnd?: number;
   inventarioDisponibleM?: number;
+
+  // ✅ NUEVO
+  precioUnitario?: string;
 };
 
 type Pedido = {
@@ -24,6 +29,11 @@ type Pedido = {
   cliente?: string;
   oc?: string;
   fechaRequerida?: string;
+
+  // ✅ NUEVOS
+  fechaSolicitud?: string;
+  direccion?: string;
+  obsComerciales?: string;
 
   observacionesPlaneacion?: string;
   revisadoPlaneacion?: string;
@@ -45,18 +55,55 @@ async function safeJsonFetch<T>(url: string): Promise<T | null> {
   }
 }
 
-// === PDF (igual a Comercial) ===
-async function fetchPdfPathFromComercial(pedidoKey: string): Promise<string> {
+// ✅ Traemos detalle desde Comercial (PDF + fechaSolicitud + direccion + obs + precios por producto)
+async function fetchComercialDetalle(pedidoKey: string): Promise<{
+  pdfPath: string;
+  fechaSolicitud: string;
+  direccion: string;
+  obsComerciales: string;
+  priceByProducto: Map<string, string>;
+}> {
   try {
     const res = await fetch(
       `/api/comercial/pedidos/detalle?pedidoKey=${encodeURIComponent(pedidoKey)}`,
       { cache: "no-store" }
     );
     const json = await res.json().catch(() => null);
-    if (!res.ok || !json?.success) return "";
-    return String(json?.pedido?.pdfPath || "");
+
+    if (!res.ok || !json?.success || !json?.pedido) {
+      return {
+        pdfPath: "",
+        fechaSolicitud: "",
+        direccion: "",
+        obsComerciales: "",
+        priceByProducto: new Map<string, string>(),
+      };
+    }
+
+    const p = json.pedido;
+
+    const priceByProducto = new Map<string, string>();
+    for (const it of p.items || []) {
+      const producto = String(it.producto || "").trim();
+      const precio = String(it.precioUnitario || "").trim();
+      if (producto && precio) priceByProducto.set(producto, precio);
+    }
+
+    return {
+      pdfPath: String(p.pdfPath || ""),
+      fechaSolicitud: String(p.fechaSolicitud || ""),
+      direccion: String(p.direccion || ""),
+      obsComerciales: String(p.obsComerciales || ""),
+      priceByProducto,
+    };
   } catch {
-    return "";
+    return {
+      pdfPath: "",
+      fechaSolicitud: "",
+      direccion: "",
+      obsComerciales: "",
+      priceByProducto: new Map<string, string>(),
+    };
   }
 }
 
@@ -138,8 +185,11 @@ function PedidoFlujoInner() {
   const [obs, setObs] = useState("");
   const [saving, setSaving] = useState(false);
 
-  // pdfPath (sacado desde Comercial)
+  // ✅ Detalles que vienen desde Comercial
   const [pdfPath, setPdfPath] = useState<string>("");
+  const [fechaSolicitud, setFechaSolicitud] = useState<string>("");
+  const [direccion, setDireccion] = useState<string>("");
+  const [obsComerciales, setObsComerciales] = useState<string>("");
 
   const isValidated = useMemo(() => {
     const s = (pedido?.revisadoPlaneacion || "").toLowerCase();
@@ -159,6 +209,7 @@ function PedidoFlujoInner() {
       setLoading(true);
       setErr(null);
 
+      // 1) Pedido desde Planeación (items + estado planeación)
       const data = await safeJsonFetch<{ success: boolean; pedido?: Pedido; message?: string }>(
         `/api/planeacion/pedido?pedidoKey=${encodeURIComponent(pedidoKey)}`
       );
@@ -168,31 +219,40 @@ function PedidoFlujoInner() {
       if (!data?.success || !data.pedido) {
         setErr(data?.message || "No se pudo cargar el pedido.");
         setPedido(null);
-      } else {
-        setPedido(data.pedido);
-        setObs((data.pedido.observacionesPlaneacion || "").trim());
+        setLoading(false);
+        return;
       }
+
+      // 2) Detalle desde Comercial (pdf + fecha solicitud + dirección + observaciones + precios)
+      const comercial = await fetchComercialDetalle(pedidoKey);
+      if (!mounted) return;
+
+      // 3) Enriquecer items de planeación con precio unitario (match por producto)
+      const enrichedItems = (data.pedido.items || []).map((it) => ({
+        ...it,
+        precioUnitario: comercial.priceByProducto.get(it.producto)?.trim() || undefined,
+      }));
+
+      setPedido({
+        ...data.pedido,
+        items: enrichedItems,
+        fechaSolicitud: comercial.fechaSolicitud,
+        direccion: comercial.direccion,
+        obsComerciales: comercial.obsComerciales,
+      });
+
+      setObs((data.pedido.observacionesPlaneacion || "").trim());
+
+      setPdfPath(comercial.pdfPath);
+      setFechaSolicitud(comercial.fechaSolicitud);
+      setDireccion(comercial.direccion);
+      setObsComerciales(comercial.obsComerciales);
 
       setLoading(false);
     };
 
     load();
 
-    return () => {
-      mounted = false;
-    };
-  }, [pedidoKey]);
-
-  // Cargar pdfPath desde Comercial (para botón "Ver PDF")
-  useEffect(() => {
-    let mounted = true;
-    async function loadPdf() {
-      if (!pedidoKey) return;
-      const p = await fetchPdfPathFromComercial(pedidoKey);
-      if (!mounted) return;
-      setPdfPath(p);
-    }
-    loadPdf();
     return () => {
       mounted = false;
     };
@@ -233,13 +293,38 @@ function PedidoFlujoInner() {
         return;
       }
 
-      // aprobar: recarga pedido y habilita tab clasificar
+      // ✅ aprobar: recarga pedido y habilita tab clasificar (FIX TS: evitar data.pedido undefined dentro del closure)
       const data = await safeJsonFetch<{ success: boolean; pedido?: Pedido }>(
         `/api/planeacion/pedido?pedidoKey=${encodeURIComponent(pedidoKey)}`
       );
-      if (data?.success && data.pedido) {
-        setPedido(data.pedido);
+
+      const refreshedPedido = data?.success ? data.pedido : undefined;
+
+      if (refreshedPedido) {
+        setPedido((prev) => {
+          const priceByProducto = new Map<string, string>();
+          for (const it of prev?.items || []) {
+            if (it.producto && it.precioUnitario) {
+              priceByProducto.set(it.producto, it.precioUnitario);
+            }
+          }
+
+          const mergedItems = (refreshedPedido.items || []).map((it) => ({
+            ...it,
+            precioUnitario: priceByProducto.get(it.producto) || undefined,
+          }));
+
+          return {
+            ...refreshedPedido,
+            items: mergedItems,
+            // conservar extras de Comercial ya cargados
+            fechaSolicitud: prev?.fechaSolicitud,
+            direccion: prev?.direccion,
+            obsComerciales: prev?.obsComerciales,
+          };
+        });
       }
+
       setTab("clasificar");
     } catch {
       alert("Error de red guardando validación.");
@@ -273,7 +358,9 @@ function PedidoFlujoInner() {
               onClick={() => setTab("validar")}
               className={[
                 "rounded-xl px-4 py-2 text-sm font-medium",
-                tab === "validar" ? "bg-neutral-900 text-white" : "text-neutral-700 hover:bg-white",
+                tab === "validar"
+                  ? "bg-neutral-900 text-white"
+                  : "text-neutral-700 hover:bg-white",
               ].join(" ")}
             >
               Validar
@@ -288,7 +375,9 @@ function PedidoFlujoInner() {
               disabled={!isValidated}
               className={[
                 "rounded-xl px-4 py-2 text-sm font-medium",
-                tab === "clasificar" ? "bg-neutral-900 text-white" : "text-neutral-700 hover:bg-white",
+                tab === "clasificar"
+                  ? "bg-neutral-900 text-white"
+                  : "text-neutral-700 hover:bg-white",
                 !isValidated ? "opacity-40 cursor-not-allowed" : "",
               ].join(" ")}
             >
@@ -338,6 +427,7 @@ function PedidoFlujoInner() {
                       )}
                     </div>
 
+                    {/* ✅ Resumen con nuevos campos */}
                     <div className="mt-4 grid gap-2 rounded-xl border border-neutral-200 bg-neutral-50 p-4 text-sm">
                       <div className="flex justify-between gap-3">
                         <span className="text-neutral-600">Pedido</span>
@@ -352,8 +442,30 @@ function PedidoFlujoInner() {
                         <span className="font-medium">{pedido.oc ?? "—"}</span>
                       </div>
                       <div className="flex justify-between gap-3">
+                        <span className="text-neutral-600">Fecha solicitud</span>
+                        <span className="font-medium">
+                          {formatFechaColombia(fechaSolicitud || pedido.fechaSolicitud)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between gap-3">
                         <span className="text-neutral-600">Fecha requerida</span>
                         <span className="font-medium">{formatFechaColombia(pedido.fechaRequerida)}</span>
+                      </div>
+
+                      <div className="mt-2 border-t border-neutral-200 pt-3">
+                        <div className="flex justify-between gap-3">
+                          <span className="text-neutral-600">Dirección</span>
+                          <span className="font-medium text-right">
+                            {direccion || pedido.direccion || "—"}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="mt-2 border-t border-neutral-200 pt-3">
+                        <div className="text-neutral-600 text-xs mb-1">Observaciones comerciales</div>
+                        <div className="rounded-lg bg-white border border-neutral-200 p-3 text-sm text-neutral-900 whitespace-pre-wrap">
+                          {obsComerciales || pedido.obsComerciales || "—"}
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -373,6 +485,13 @@ function PedidoFlujoInner() {
                               UND: <span className="font-medium">{it.cantidadUnd}</span> · M:{" "}
                               <span className="font-medium">{it.cantidadM}</span>
                             </div>
+
+                            {/* ✅ NUEVO */}
+                            <div className="mt-1 text-xs text-neutral-600">
+                              Precio unitario:{" "}
+                              <span className="font-medium">{it.precioUnitario || "—"}</span>
+                            </div>
+
                             <div className="mt-2 text-xs text-neutral-500">fila: {it.rowIndex1Based}</div>
                           </div>
                         ))
