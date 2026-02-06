@@ -1,4 +1,3 @@
-//app/api/planeacion/pedidos/list/route.ts
 // app/api/planeacion/pedidos/list/route.ts
 import { NextResponse } from "next/server";
 import { env } from "@/lib/config/env";
@@ -61,7 +60,6 @@ function toYMDFromSheets(value: unknown): string {
   return s;
 }
 
-
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
@@ -84,10 +82,13 @@ export async function GET(req: Request) {
 
     /**
      * Índices IMPORTANTES (0-based)
-     * X  = 23 → Estado
-     * V  = 21 → Revisado Planeación
-     * AL = 37 → pedidoKey
+     * D  = 3  → Cliente
+     * E  = 4  → Dirección y ciudad de despacho ✅ (NUEVO)
+     * F  = 5  → OC
      * P  = 15 → Fecha Requerida Cliente
+     * V  = 21 → Revisado Planeación
+     * X  = 23 → Estado
+     * AL = 37 → pedidoKey
      */
     const map = new Map<string, any>();
 
@@ -110,8 +111,9 @@ export async function GET(req: Request) {
           pedidoKey,
           consecutivo: toStr(r[0]),
           cliente: toStr(r[3]),
+          direccion: toStr(r[4]), // ✅ NUEVO: E
           oc: toStr(r[5]),
-          // ✅ AQUÍ ESTÁ EL FIX:
+          // ✅ Fecha requerida sin desfase por TZ
           fechaRequerida: toYMDFromSheets(r[15]),
           estadoPlaneacion: estadoPedido,
         });
@@ -126,6 +128,7 @@ export async function GET(req: Request) {
         i.pedidoKey.toLowerCase().includes(qq) ||
         i.consecutivo.toLowerCase().includes(qq) ||
         i.cliente.toLowerCase().includes(qq) ||
+        i.direccion.toLowerCase().includes(qq) || // ✅ NUEVO
         i.oc.toLowerCase().includes(qq)
       );
     }

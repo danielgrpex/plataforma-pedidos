@@ -1,4 +1,3 @@
-//app/planeacion/page.tsx
 // app/planeacion/page.tsx
 "use client";
 
@@ -71,7 +70,12 @@ function badgeEstado(estado?: string) {
     );
   }
 
-  if (s.includes("corte") || s.includes("producci") || s.includes("almac") || s.includes("desp")) {
+  if (
+    s.includes("corte") ||
+    s.includes("producci") ||
+    s.includes("almac") ||
+    s.includes("desp")
+  ) {
     return (
       <span className="inline-flex items-center rounded-full bg-indigo-50 px-2 py-0.5 text-xs text-indigo-700">
         {estado}
@@ -143,7 +147,7 @@ export default function PlaneacionListadoPage() {
             value={q}
             onChange={(e) => setQ(e.target.value)}
             className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
-            placeholder="Buscar por cliente, OC, consecutivo o pedidoKey…"
+            placeholder="Buscar por cliente, dirección, OC, consecutivo o pedidoKey…"
           />
           <button
             onClick={load}
@@ -191,7 +195,14 @@ export default function PlaneacionListadoPage() {
                 items.map((p) => (
                   <tr key={p.pedidoKey} className="hover:bg-slate-50">
                     <td className="px-4 py-3">{p.consecutivo || "—"}</td>
-                    <td className="px-4 py-3">{p.cliente || "—"}</td>
+
+                    {/* ✅ Cliente - Dirección */}
+                    <td className="px-4 py-3">
+                      {p.cliente
+                        ? `${p.cliente}${p.direccion ? ` - ${p.direccion}` : ""}`
+                        : "—"}
+                    </td>
+
                     <td className="px-4 py-3">{p.oc || "—"}</td>
                     <td className="px-4 py-3">{formatFechaColombia(p.fechaRequerida)}</td>
                     <td className="px-4 py-3">{badgeEstado(p.estadoPlaneacion || "Pendiente")}</td>
