@@ -16,6 +16,16 @@ type EnCursoItem = {
   Estado: string;
 };
 
+type OrdenResumen = {
+  ope: string;
+  pedidoKey: string;
+  rowIndexPedido: string;
+  productoKey: string;
+  cantidadUND: number;
+  avanceActual: number;
+  faltante: number;
+};
+
 async function safeJsonFetch<T>(url: string): Promise<T | null> {
   try {
     const res = await fetch(url, { cache: "no-store" });
@@ -24,6 +34,17 @@ async function safeJsonFetch<T>(url: string): Promise<T | null> {
   } catch {
     return null;
   }
+}
+
+// ✅ Validadores
+function sanitizeInt(v: string) {
+  return v.replace(/[^\d]/g, ""); // solo dígitos
+}
+function sanitizeDecimal(v: string) {
+  const s = v.replace(",", ".").replace(/[^\d.]/g, "");
+  const parts = s.split(".");
+  if (parts.length <= 1) return s;
+  return parts[0] + "." + parts.slice(1).join(""); // solo 1 punto
 }
 
 export default function FinalizarReporteMaquinasPage() {
@@ -35,6 +56,10 @@ export default function FinalizarReporteMaquinasPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const [selectedRowIndex, setSelectedRowIndex] = useState<number | "">("");
+
+  // ✅ resumen orden
+  const [ordenInfo, setOrdenInfo] = useState<OrdenResumen | null>(null);
+  const [loadingOrden, setLoadingOrden] = useState(false);
 
   // --- Campos Alistamiento
   const [obsAlist, setObsAlist] = useState("");
@@ -86,11 +111,12 @@ export default function FinalizarReporteMaquinasPage() {
     return "produccion";
   }, [tab]);
 
-  const labelItem = (it: EnCursoItem) =>
-    `${it.OPE} — ${it.Trabajador} — ${it.productoKey}`;
+  const labelItem = (it: EnCursoItem) => `${it.OPE} — ${it.Trabajador} — ${it.productoKey}`;
 
   const resetForm = () => {
     setSelectedRowIndex("");
+    setOrdenInfo(null);
+
     setObsAlist("");
 
     setPncCuadreKg("");
@@ -111,6 +137,25 @@ export default function FinalizarReporteMaquinasPage() {
     setObsProd("");
   };
 
+  // ✅ Cargar resumen cuando se selecciona orden
+  async function loadOrdenInfoFromItem(it: EnCursoItem) {
+    setLoadingOrden(true);
+    try {
+      const res = await fetch(
+        `/api/produccion/ordenes/detalle?ope=${encodeURIComponent(it.OPE)}&productoKey=${encodeURIComponent(it.productoKey)}`,
+        { cache: "no-store" }
+      );
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.success) throw new Error(json?.message || "No se pudo cargar detalle");
+      setOrdenInfo(json.orden as OrdenResumen);
+    } catch (e: any) {
+      setOrdenInfo(null);
+      alert(e?.message || "Error cargando detalle de la orden");
+    } finally {
+      setLoadingOrden(false);
+    }
+  }
+
   // Cargar listado por pestaña
   useEffect(() => {
     let mounted = true;
@@ -120,6 +165,7 @@ export default function FinalizarReporteMaquinasPage() {
       setSubmitError(null);
       setSubmitOk(null);
       setSelectedRowIndex("");
+      setOrdenInfo(null);
 
       const data = await safeJsonFetch<EnCursoItem[]>(
         `/api/produccion/reporte-maquinas/en-curso?tipo=${tipoApi}`
@@ -139,28 +185,11 @@ export default function FinalizarReporteMaquinasPage() {
     };
 
     load();
-    return () => {
-      mounted = false;
-    };
+    return () => { mounted = false; };
   }, [tipoApi]);
 
   const validate = (): string | null => {
     if (!selectedRowIndex) return "Selecciona una orden en curso.";
-
-    if (tab === "alistamiento") {
-      // Observaciones opcional (si la quieres obligatoria, lo cambiamos)
-      return null;
-    }
-
-    if (tab === "cuadre") {
-      // aquí podrías obligar algunos, por ahora dejamos libre
-      return null;
-    }
-
-    if (tab === "produccion") {
-      return null;
-    }
-
     return null;
   };
 
@@ -225,7 +254,7 @@ export default function FinalizarReporteMaquinasPage() {
       setSubmitOk("✅ Finalizado. Se actualizó Hora Fin y se marcó Estado = Finalizado.");
       resetForm();
 
-      // Recargar listado (para que desaparezca del dropdown)
+      // Recargar listado
       const updated = await safeJsonFetch<EnCursoItem[]>(
         `/api/produccion/reporte-maquinas/en-curso?tipo=${tipoApi}`
       );
@@ -234,6 +263,11 @@ export default function FinalizarReporteMaquinasPage() {
       setSubmitError("Error de red al finalizar.");
     }
   };
+
+  const selectedItem = useMemo(() => {
+    if (!selectedRowIndex) return null;
+    return items.find((x) => x.rowIndex === selectedRowIndex) || null;
+  }, [selectedRowIndex, items]);
 
   return (
     <div className="min-h-screen bg-neutral-50">
@@ -291,7 +325,15 @@ export default function FinalizarReporteMaquinasPage() {
               <Field label="Orden en curso">
                 <select
                   value={selectedRowIndex}
-                  onChange={(e) => setSelectedRowIndex(e.target.value ? Number(e.target.value) : "")}
+                  onChange={(e) => {
+                    const v = e.target.value ? Number(e.target.value) : "";
+                    setSelectedRowIndex(v);
+                    setOrdenInfo(null);
+                    if (v) {
+                      const it = items.find((x) => x.rowIndex === v);
+                      if (it) loadOrdenInfoFromItem(it);
+                    }
+                  }}
                   className="w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-neutral-900/10"
                   disabled={loading || !!loadError}
                 >
@@ -309,6 +351,39 @@ export default function FinalizarReporteMaquinasPage() {
 
               <div className="hidden md:block" />
             </div>
+
+            {/* ✅ Resumen al seleccionar */}
+            {selectedItem && (
+              <div className="mt-4 rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-semibold text-neutral-900">
+                    Resumen de la orden seleccionada
+                  </h3>
+                  {loadingOrden && <span className="text-xs text-neutral-500">Cargando…</span>}
+                </div>
+
+                {!loadingOrden && ordenInfo && (
+                  <div className="mt-3 grid gap-2 text-sm">
+                    <Row label="OPE" value={ordenInfo.ope} />
+                    <Row label="pedidoKey" value={ordenInfo.pedidoKey || "—"} />
+                    <Row label="rowIndexPedido" value={ordenInfo.rowIndexPedido || "—"} />
+                    <Row label="productoKey" value={ordenInfo.productoKey || "—"} />
+                    <Row label="Cantidad solicitada (UND)" value={String(ordenInfo.cantidadUND ?? 0)} />
+
+                    <div className="mt-2 grid gap-2 md:grid-cols-2">
+                      <Kpi title="Unidades acumuladas" value={String(ordenInfo.avanceActual ?? 0)} />
+                      <Kpi title="Unidades faltantes" value={String(ordenInfo.faltante ?? 0)} />
+                    </div>
+                  </div>
+                )}
+
+                {!loadingOrden && !ordenInfo && (
+                  <div className="mt-2 text-sm text-neutral-600">
+                    No se pudo cargar el resumen de esta orden.
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Campos por tab */}
             <div className="mt-6 rounded-xl border border-neutral-200 bg-neutral-50 p-4">
@@ -382,18 +457,78 @@ export default function FinalizarReporteMaquinasPage() {
 
               {tab === "produccion" && (
                 <div className="space-y-4">
-                  <p className="text-sm font-medium text-neutral-900">
-                    Cierre — Producción
-                  </p>
+                  <p className="text-sm font-medium text-neutral-900">Cierre — Producción</p>
 
                   <div className="grid gap-4 md:grid-cols-3">
-                    <Field label="Avance"><input value={avance} onChange={(e) => setAvance(e.target.value)} className={inputCls} /></Field>
-                    <Field label="Peso Real"><input value={pesoReal} onChange={(e) => setPesoReal(e.target.value)} className={inputCls} /></Field>
-                    <Field label="Ciclo Real"><input value={cicloReal} onChange={(e) => setCicloReal(e.target.value)} className={inputCls} /></Field>
+                    <Field label="Avance">
+                      <input
+                        inputMode="numeric"
+                        pattern="\d*"
+                        value={avance}
+                        onChange={(e) => setAvance(sanitizeInt(e.target.value))}
+                        className={inputCls}
+                        placeholder="Digite las unidades que avanzó en el turno"
+                      />
+                      <p className="mt-1 text-xs text-neutral-600">Digite las unidades que avanzó en el turno</p>
+                    </Field>
 
-                    <Field label="PNC (UND)"><input value={pncUnd} onChange={(e) => setPncUnd(e.target.value)} className={inputCls} /></Field>
-                    <Field label="PNC (Kg)"><input value={pncKg} onChange={(e) => setPncKg(e.target.value)} className={inputCls} /></Field>
-                    <Field label="Tiempo Paro (h)"><input value={tiempoParoH} onChange={(e) => setTiempoParoH(e.target.value)} className={inputCls} /></Field>
+                    <Field label="Peso Real">
+                      <input
+                        inputMode="decimal"
+                        value={pesoReal}
+                        onChange={(e) => setPesoReal(sanitizeDecimal(e.target.value))}
+                        className={inputCls}
+                        placeholder="Digite el peso por metro en gramos"
+                      />
+                      <p className="mt-1 text-xs text-neutral-600">Digite el peso por metro en gramos</p>
+                    </Field>
+
+                    <Field label="Ciclo Real">
+                      <input
+                        inputMode="decimal"
+                        value={cicloReal}
+                        onChange={(e) => setCicloReal(sanitizeDecimal(e.target.value))}
+                        className={inputCls}
+                        placeholder="Digite el ciclo por metro en segundos"
+                      />
+                      <p className="mt-1 text-xs text-neutral-600">Digite el ciclo por metro en segundos</p>
+                    </Field>
+
+                    <Field label="PNC (UND)">
+                      <input
+                        inputMode="numeric"
+                        pattern="\d*"
+                        value={pncUnd}
+                        onChange={(e) => setPncUnd(sanitizeInt(e.target.value))}
+                        className={inputCls}
+                        placeholder="Digite las unidades de producto no conforme"
+                      />
+                      <p className="mt-1 text-xs text-neutral-600">Digite las unidades de producto no conforme</p>
+                    </Field>
+
+                    <Field label="PNC (Kg)">
+                      <input
+                        inputMode="decimal"
+                        value={pncKg}
+                        onChange={(e) => setPncKg(sanitizeDecimal(e.target.value))}
+                        className={inputCls}
+                        placeholder="Digite el peso total del producto no conforme en kilogramos"
+                      />
+                      <p className="mt-1 text-xs text-neutral-600">
+                        Digite el peso total del producto no conforme en kilogramos
+                      </p>
+                    </Field>
+
+                    <Field label="Tiempo Paro (h)">
+                      <input
+                        inputMode="decimal"
+                        value={tiempoParoH}
+                        onChange={(e) => setTiempoParoH(sanitizeDecimal(e.target.value))}
+                        className={inputCls}
+                        placeholder="Digite el tiempo total de paros en horas"
+                      />
+                      <p className="mt-1 text-xs text-neutral-600">Digite el tiempo total de paros en horas</p>
+                    </Field>
 
                     <Field label="Tipo Paro"><input value={tipoParo} onChange={(e) => setTipoParo(e.target.value)} className={inputCls} /></Field>
                     <Field label="Supervisor"><input value={supervisor} onChange={(e) => setSupervisor(e.target.value)} className={inputCls} /></Field>
@@ -475,20 +610,29 @@ function TabButton({
   );
 }
 
-
-function Field({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
-      <label className="mb-1 block text-sm font-medium text-neutral-900">
-        {label}
-      </label>
+      <label className="mb-1 block text-sm font-medium text-neutral-900">{label}</label>
       {children}
+    </div>
+  );
+}
+
+function Row({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex justify-between gap-3">
+      <span className="text-neutral-500">{label}</span>
+      <span className="font-medium text-right">{value}</span>
+    </div>
+  );
+}
+
+function Kpi({ title, value }: { title: string; value: string }) {
+  return (
+    <div className="rounded-xl bg-neutral-50 p-3 border border-neutral-200">
+      <div className="text-xs text-neutral-500">{title}</div>
+      <div className="text-lg font-semibold">{value}</div>
     </div>
   );
 }
