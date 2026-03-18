@@ -11,6 +11,7 @@ type CatalogosSoplado = {
   materialColor: string[];
   bocas: string[];
   acabados: string[];
+  vendedores: string[];
 };
 
 type ItemSopladoForm = {
@@ -32,6 +33,7 @@ const emptyCats: CatalogosSoplado = {
   materialColor: [],
   bocas: [],
   acabados: [],
+  vendedores: [],
 };
 
 const uid = () => "s_" + Math.random().toString(36).slice(2, 9);
@@ -88,7 +90,6 @@ export default function NuevoPedidoSopladoPage() {
   const [loadingCats, setLoadingCats] = useState(true);
 
   const [cliente, setCliente] = useState("");
-  const [direccion, setDireccion] = useState("");
   const [oc, setOc] = useState("");
   const [fechaReq, setFechaReq] = useState("");
   const [asesor, setAsesor] = useState("");
@@ -213,8 +214,6 @@ export default function NuevoPedidoSopladoPage() {
     }
     if (!cliente.trim()) return 'El campo "Cliente" es obligatorio.';
     if (!asesor.trim()) return 'El campo "Asesor comercial" es obligatorio.';
-    if (!direccion.trim())
-      return 'El campo "Dirección de despacho" es obligatorio.';
     if (!oc.trim())
       return 'El campo "N° Orden de Compra / Cotización" es obligatorio.';
     if (!fechaReq.trim())
@@ -302,7 +301,6 @@ export default function NuevoPedidoSopladoPage() {
 
   const resetForm = () => {
     setCliente("");
-    setDireccion("");
     setOc("");
     setFechaReq("");
     setAsesor("");
@@ -345,13 +343,12 @@ export default function NuevoPedidoSopladoPage() {
       setMsg("Subiendo PDF…");
       const pdfPath = await uploadPdfAndGetPath(cliente.trim(), oc.trim(), ocFile);
 
-      setMsg("Preparando pedido soplado…");
+      setMsg("Guardando pedido soplado…");
 
       const payload = {
         cabecera: {
           tipo: "soplado",
           cliente: cliente.trim(),
-          direccion: direccion.trim(),
           oc: oc.trim(),
           fechaRequerida: fechaReq,
           asesor: asesor.trim(),
@@ -372,13 +369,20 @@ export default function NuevoPedidoSopladoPage() {
         pdfPath,
       };
 
-      console.log("Payload SOPLADO listo para guardar:", payload);
+      const res = await fetch("/api/comercial/pedidos/guardar-soplado", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
 
-      setMsg("✅ Formulario soplado validado y PDF subido correctamente.");
+      const json = await res.json().catch(() => null);
+
+      if (!res.ok || !json?.success) {
+        throw new Error(json?.message || "Error al guardar pedido soplado.");
+      }
+
+      setMsg("✅ Pedido soplado guardado correctamente.");
       resetForm();
-
-      // Luego aquí irá el POST real:
-      // const res = await fetch("/api/comercial/pedidos/guardar-soplado", { ... })
     } catch (e: any) {
       console.error(e);
       setErr(e?.message || "Error al preparar pedido soplado.");
@@ -425,17 +429,6 @@ export default function NuevoPedidoSopladoPage() {
               </select>
             </div>
 
-            <div className="md:col-span-2">
-              <label className="mb-1 block text-sm font-medium">
-                Dirección de despacho
-              </label>
-              <input
-                className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
-                value={direccion}
-                onChange={(e) => setDireccion(e.target.value)}
-              />
-            </div>
-
             <div>
               <label className="mb-1 block text-sm font-medium">
                 N° Orden de Compra / Cotización
@@ -463,12 +456,17 @@ export default function NuevoPedidoSopladoPage() {
               <label className="mb-1 block text-sm font-medium">
                 Asesor Comercial
               </label>
-              <input
+              <select
                 className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
                 value={asesor}
                 onChange={(e) => setAsesor(e.target.value)}
-                placeholder="Nombre del asesor comercial"
-              />
+                disabled={loadingCats}
+              >
+                <option value="">Seleccione</option>
+                {cats.vendedores.map((v) => (
+                  <option key={v}>{v}</option>
+                ))}
+              </select>
             </div>
 
             <div className="md:col-span-2">

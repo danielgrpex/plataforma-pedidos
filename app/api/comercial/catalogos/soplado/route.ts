@@ -57,15 +57,23 @@ export async function GET() {
       auth: client as any,
     });
 
-    const [clientes, siigo, referencias, materialColor, bocas, acabados] =
-      await Promise.all([
-        getColumnValues(sheets, "Clientes.Soplado"),
-        getSiigoSopladoValues(sheets),
-        getColumnValues(sheets, "Ref.Soplado"),
-        getColumnValues(sheets, "M.Color.Soplado"),
-        getColumnValues(sheets, "Boca.Soplado"),
-        getColumnValues(sheets, "Acabados.Soplado"),
-      ]);
+    const [
+      clientes,
+      siigo,
+      referencias,
+      materialColor,
+      bocas,
+      acabados,
+      vendedores,
+    ] = await Promise.all([
+      getColumnValues(sheets, "Clientes.Soplado"),
+      getSiigoSopladoValues(sheets),
+      getColumnValues(sheets, "Ref.Soplado"),
+      getColumnValues(sheets, "M.Color.Soplado"),
+      getColumnValues(sheets, "Boca.Soplado"),
+      getColumnValues(sheets, "Acabados.Soplado"),
+      getColumnValues(sheets, "Vendedores"),
+    ]);
 
     return NextResponse.json({
       ok: true,
@@ -76,6 +84,7 @@ export async function GET() {
         materialColor,
         bocas,
         acabados,
+        vendedores,
       },
     });
   } catch (error) {
