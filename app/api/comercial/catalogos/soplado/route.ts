@@ -1,6 +1,10 @@
 import { google } from "googleapis";
 import { NextResponse } from "next/server";
 
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 const SHEET_ID = process.env.SHEET_INFO_ID!;
 
 const auth = new google.auth.GoogleAuth({
@@ -24,7 +28,7 @@ async function getColumnValues(
   });
 
   return (response.data.values || [])
-    .map((row: any[]) => row[0])
+    .map((row: any[]) => String(row?.[0] ?? "").trim())
     .filter(Boolean);
 }
 
@@ -75,18 +79,27 @@ export async function GET() {
       getColumnValues(sheets, "Vendedores"),
     ]);
 
-    return NextResponse.json({
-      ok: true,
-      data: {
-        clientes,
-        siigo,
-        referencias,
-        materialColor,
-        bocas,
-        acabados,
-        vendedores,
+    return NextResponse.json(
+      {
+        ok: true,
+        data: {
+          clientes,
+          siigo,
+          referencias,
+          materialColor,
+          bocas,
+          acabados,
+          vendedores,
+        },
       },
-    });
+      {
+        headers: {
+          "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+          Pragma: "no-cache",
+          Expires: "0",
+        },
+      }
+    );
   } catch (error) {
     console.error("Error cargando catálogos soplado:", error);
 
