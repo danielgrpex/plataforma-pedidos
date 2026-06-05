@@ -54,7 +54,8 @@ export default function FinalizarReporteMaquinasPage() {
   const [loading, setLoading] = useState(false);
   const [items, setItems] = useState<EnCursoItem[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
-
+  const [paros, setParos] = useState<string[]>([]);
+  const [supervisores, setSupervisores] = useState<string[]>([]);
   const [selectedRowIndex, setSelectedRowIndex] = useState<number | "">("");
 
   // ✅ resumen orden
@@ -96,7 +97,8 @@ export default function FinalizarReporteMaquinasPage() {
   const [cicloReal, setCicloReal] = useState("");
   const [pncUnd, setPncUnd] = useState("");
   const [pncKg, setPncKg] = useState("");
-  const [tiempoParoH, setTiempoParoH] = useState("");
+  const [horasParo, setHorasParo] = useState("0");
+const [minutosParo, setMinutosParo] = useState("0");
   const [tipoParo, setTipoParo] = useState("");
   const [supervisor, setSupervisor] = useState("");
   const [obsProd, setObsProd] = useState("");
@@ -112,6 +114,33 @@ export default function FinalizarReporteMaquinasPage() {
   }, [tab]);
 
   const labelItem = (it: EnCursoItem) => `${it.OPE} — ${it.Trabajador} — ${it.productoKey}`;
+
+  useEffect(() => {
+  let mounted = true;
+
+  async function loadCatalogos() {
+    const data = await safeJsonFetch<{
+      ok: boolean;
+      data: {
+        paros: string[];
+        supervisores: string[];
+      };
+    }>("/api/produccion/catalogos/reporte-maquinas");
+
+    if (!mounted) return;
+
+    if (data?.ok) {
+  setParos(data.data.paros || []);
+  setSupervisores(data.data.supervisores || []);
+}
+  }
+
+  loadCatalogos();
+
+  return () => {
+    mounted = false;
+  };
+}, []);
 
   const resetForm = () => {
     setSelectedRowIndex("");
@@ -131,7 +160,8 @@ export default function FinalizarReporteMaquinasPage() {
     setCicloReal("");
     setPncUnd("");
     setPncKg("");
-    setTiempoParoH("");
+setHorasParo("0");
+setMinutosParo("0");
     setTipoParo("");
     setSupervisor("");
     setObsProd("");
@@ -222,16 +252,16 @@ export default function FinalizarReporteMaquinasPage() {
 
     if (tab === "produccion") {
       Object.assign(data, {
-        avance,
-        pesoReal,
-        cicloReal,
-        pncUnd,
-        pncKg,
-        tiempoParoH,
-        tipoParo,
-        supervisor,
-        observacionesProduccion: obsProd,
-      });
+  avance,
+  pesoReal,
+  cicloReal,
+  pncUnd,
+  pncKg,
+  tiempoParoH: tiempoParoCalculado,
+  tipoParo,
+  supervisor,
+  observacionesProduccion: obsProd,
+});
     }
 
     try {
@@ -263,7 +293,14 @@ export default function FinalizarReporteMaquinasPage() {
       setSubmitError("Error de red al finalizar.");
     }
   };
+const tiempoParoCalculado = useMemo(() => {
+  const horas = Number(horasParo || 0);
+  const minutos = Number(minutosParo || 0);
 
+  const total = horas + minutos / 60;
+
+  return total.toFixed(2);
+}, [horasParo, minutosParo]);
   const selectedItem = useMemo(() => {
     if (!selectedRowIndex) return null;
     return items.find((x) => x.rowIndex === selectedRowIndex) || null;
@@ -519,19 +556,70 @@ export default function FinalizarReporteMaquinasPage() {
                       </p>
                     </Field>
 
-                    <Field label="Tiempo Paro (h)">
-                      <input
-                        inputMode="decimal"
-                        value={tiempoParoH}
-                        onChange={(e) => setTiempoParoH(sanitizeDecimal(e.target.value))}
-                        className={inputCls}
-                        placeholder="Digite el tiempo total de paros en horas"
-                      />
-                      <p className="mt-1 text-xs text-neutral-600">Digite el tiempo total de paros en horas</p>
-                    </Field>
+                   <Field label="Tiempo Paro">
+  <div className="grid grid-cols-2 gap-2">
+    <select
+      value={horasParo}
+      onChange={(e) => setHorasParo(e.target.value)}
+      className={inputCls}
+    >
+      {Array.from({ length: 25 }).map((_, i) => (
+        <option key={i} value={String(i)}>
+          {i} horas
+        </option>
+      ))}
+    </select>
 
-                    <Field label="Tipo Paro"><input value={tipoParo} onChange={(e) => setTipoParo(e.target.value)} className={inputCls} /></Field>
-                    <Field label="Supervisor"><input value={supervisor} onChange={(e) => setSupervisor(e.target.value)} className={inputCls} /></Field>
+    <select
+      value={minutosParo}
+      onChange={(e) => setMinutosParo(e.target.value)}
+      className={inputCls}
+    >
+      {[0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55].map((m) => (
+        <option key={m} value={String(m)}>
+          {m} min
+        </option>
+      ))}
+    </select>
+  </div>
+
+  <p className="mt-1 text-xs text-neutral-600">
+    Selecciona horas y minutos del paro.
+  </p>
+
+  <p className="text-xs font-medium text-emerald-700">
+    Valor a guardar: {tiempoParoCalculado} h
+  </p>
+</Field>
+
+                    <Field label="Tipo Paro">
+  <select
+    value={tipoParo}
+    onChange={(e) => setTipoParo(e.target.value)}
+    className={inputCls}
+  >
+    <option value="">Seleccione...</option>
+    {paros.map((item) => (
+      <option key={item} value={item}>
+        {item}
+      </option>
+    ))}
+  </select>
+</Field>
+                    <Field label="Supervisor">
+  <select
+    value={supervisor}
+    onChange={(e) => setSupervisor(e.target.value)}
+    className={inputCls}
+  >
+    <option value="">Seleccione...</option>
+    {supervisores.map((item) => (
+      <option key={item} value={item}>
+        {item}
+      </option>
+    ))}
+  </select>
+</Field>
                   </div>
 
                   <Field label="Observaciones Producción">
