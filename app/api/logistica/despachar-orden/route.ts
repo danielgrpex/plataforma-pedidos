@@ -360,25 +360,27 @@ export async function POST(req: Request) {
 
       if (currentGroupKey !== groupKey) continue;
 
-      const estado = lower(r[iEst]);
-      const listo = estado === "almacén" || estado === "almacen";
-
-      if (!listo) {
-        return NextResponse.json(
-          {
-            success: false,
-            message: "No se puede despachar este grupo porque tiene ítems que todavía no están en Almacén.",
-          },
-          { status: 409 }
-        );
-      }
-
       const pedidoRowIndex = idx0 + 2;
-      const solicitado = safeNum(r[iUnd]);
-      const yaDespachado = sumDespachado.get(`${pedidosKey}__${pedidoRowIndex}`) || 0;
-      const pendienteUnd = Math.max(0, solicitado - yaDespachado);
+const solicitado = safeNum(r[iUnd]);
+const yaDespachado = sumDespachado.get(`${pedidosKey}__${pedidoRowIndex}`) || 0;
+const pendienteUnd = Math.max(0, solicitado - yaDespachado);
 
-      if (pendienteUnd <= 0) continue;
+// Primero descartamos filas sin pendiente.
+// Así no bloquean filas ya despachadas o sin cantidad pendiente.
+if (pendienteUnd <= 0) continue;
+
+const estado = lower(r[iEst]);
+const listo = estado === "almacén" || estado === "almacen";
+
+if (!listo) {
+  return NextResponse.json(
+    {
+      success: false,
+      message: "No se puede despachar este grupo porque tiene ítems pendientes que todavía no están en Almacén.",
+    },
+    { status: 409 }
+  );
+}
 
       rowsToDispatch.push({
         pedidosKey,
