@@ -6,6 +6,12 @@ import { HeaderBlock } from "./ui";
 
 type AgruparPor = "pedido" | "clienteDireccion";
 
+type ItemResumen = {
+  producto: string;
+  cantidadUnd: number;
+  estado: string;
+};
+
 type GrupoDespacho = {
   groupKey: string;
   label: string;
@@ -17,6 +23,7 @@ type GrupoDespacho = {
   itemsListos: number;
   cantidadTotalUnd: number;
   estado: "Listo" | "Incompleto";
+  itemsResumen?: ItemResumen[];
 };
 
 type FormState = {
@@ -245,6 +252,36 @@ export function DespachosOrdenTab() {
               <p className="mt-1 text-xs text-neutral-500">
                 Ítems: {selected.itemsTotales} · Unidades: {selected.cantidadTotalUnd}
               </p>
+              <div className="mt-4 rounded-2xl border border-neutral-200 bg-neutral-50 p-3">
+  <div className="mb-2 flex items-center justify-between gap-3">
+    <h4 className="text-sm font-semibold text-neutral-800">Resumen de ítems a despachar</h4>
+    <span className="text-xs text-neutral-500">
+      {selected.itemsResumen?.length || 0} ítems
+    </span>
+  </div>
+
+  <div className="max-h-44 overflow-auto rounded-xl border border-neutral-200 bg-white">
+    <table className="w-full text-left text-xs">
+      <thead className="sticky top-0 bg-neutral-100 text-neutral-600">
+        <tr>
+          <th className="px-3 py-2">Producto</th>
+          <th className="px-3 py-2 text-right">Cantidad</th>
+          <th className="px-3 py-2">Estado</th>
+        </tr>
+      </thead>
+
+      <tbody className="divide-y divide-neutral-100">
+        {(selected.itemsResumen || []).map((item, idx) => (
+          <tr key={`${item.producto}-${idx}`}>
+            <td className="px-3 py-2 text-neutral-800">{item.producto}</td>
+            <td className="px-3 py-2 text-right font-semibold">{item.cantidadUnd}</td>
+            <td className="px-3 py-2">{item.estado}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </div>
+</div>
             </div>
 
             <div className="grid gap-3 md:grid-cols-2">

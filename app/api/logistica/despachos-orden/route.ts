@@ -96,6 +96,11 @@ const COL_PED = {
     "direccion",
   ],
   oc: ["OC", "Orden de compra", "Orden Compra", "ordenCompra", "oc"],
+  producto: ["Producto", "producto"],
+referencia: ["Referencia", "referencia"],
+color: ["Color", "color"],
+ancho: ["Ancho", "ancho"],
+largo: ["Largo", "largo"],
   cantidadUnd: ["Cantidad (und)", "Cantidad (Und)", "cantidadUnd", "cantidad (und)"],
   estado: ["Estado", "estado"],
 };
@@ -125,6 +130,11 @@ export async function GET(req: Request) {
     const iCli = findCol(pedH, COL_PED.cliente);
     const iDir = findCol(pedH, COL_PED.direccion);
     const iOc = findCol(pedH, COL_PED.oc);
+    const iProd = findCol(pedH, COL_PED.producto);
+const iRef = findCol(pedH, COL_PED.referencia);
+const iColor = findCol(pedH, COL_PED.color);
+const iAncho = findCol(pedH, COL_PED.ancho);
+const iLargo = findCol(pedH, COL_PED.largo);
     const iUnd = findCol(pedH, COL_PED.cantidadUnd);
     const iEst = findCol(pedH, COL_PED.estado);
 
@@ -169,6 +179,13 @@ export async function GET(req: Request) {
       const solicitado = safeNum(r[iUnd]);
       const estado = norm(r[iEst]);
       const est = lower(estado);
+      const estadoExcluido =
+  est === "rechazado" ||
+  est === "cancelado" ||
+  est.includes("rechazado") ||
+  est.includes("cancelado");
+
+if (estadoExcluido) continue;
 
       if (solicitado <= 0) continue;
 
@@ -196,17 +213,18 @@ export async function GET(req: Request) {
 
       if (!grupos.has(groupKey)) {
         grupos.set(groupKey, {
-          groupKey,
-          label,
-          oc,
-          consecutivo,
-          cliente,
-          direccionDespacho,
-          itemsTotales: 0,
-          itemsListos: 0,
-          cantidadTotalUnd: 0,
-          estado: "Incompleto",
-        });
+  groupKey,
+  label,
+  oc,
+  consecutivo,
+  cliente,
+  direccionDespacho,
+  itemsTotales: 0,
+  itemsListos: 0,
+  cantidadTotalUnd: 0,
+  estado: "Incompleto",
+  itemsResumen: [],
+});
       }
 
       const g = grupos.get(groupKey);
@@ -219,12 +237,29 @@ export async function GET(req: Request) {
 
       if (!g.oc && oc) g.oc = oc;
       if (!g.consecutivo && consecutivo) g.consecutivo = consecutivo;
+      const producto = iProd >= 0 ? norm(r[iProd]) : "";
+const referencia = iRef >= 0 ? norm(r[iRef]) : "";
+const color = iColor >= 0 ? norm(r[iColor]) : "";
+const ancho = iAncho >= 0 ? norm(r[iAncho]) : "";
+const largo = iLargo >= 0 ? norm(r[iLargo]) : "";
+
+const productoLabel = [producto, referencia, color, ancho, largo]
+  .filter(Boolean)
+  .join(" | ");
+
+g.itemsResumen.push({
+  producto: productoLabel || producto || "-",
+  cantidadUnd: pendiente,
+  estado: estado || "Almacén",
+});
     }
 
-    const items = Array.from(grupos.values()).map((g) => ({
-      ...g,
-      estado: g.itemsTotales > 0 && g.itemsTotales === g.itemsListos ? "Listo" : "Incompleto",
-    }));
+const items = Array.from(grupos.values())
+  .filter((g) => g.itemsListos > 0)
+  .map((g) => ({
+    ...g,
+    estado: g.itemsTotales > 0 && g.itemsTotales === g.itemsListos ? "Listo" : "Incompleto",
+  }));
 
     items.sort((a, b) => {
       if (a.estado !== b.estado) return a.estado === "Listo" ? -1 : 1;
