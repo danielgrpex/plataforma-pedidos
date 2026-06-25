@@ -194,7 +194,13 @@ function productoLabel(parts: {
   ancho: string;
   largo: string;
 }) {
-  return [parts.producto, parts.referencia, parts.color, parts.ancho, parts.largo]
+  const producto = norm(parts.producto);
+
+  // Si Producto ya viene armado con separadores, no le agregamos referencia/color/ancho/largo.
+  if (producto.includes("|")) return producto;
+
+  return [producto, parts.referencia, parts.color, parts.ancho, parts.largo]
+    .map(norm)
     .filter(Boolean)
     .join(" | ");
 }
