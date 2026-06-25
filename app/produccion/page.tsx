@@ -36,7 +36,7 @@ const TAB_META: Record<
     badge: "Almacén",
   },
   "cola-inteligente": {
-  title: "Cola Inteligente",
+  title: "Centro de Prioridades de Planta",
   desc: "Prioridad automática para planta según fecha requerida, avance del pedido y urgencia.",
   href: "/produccion/cola-inteligente",
   badge: "Prioridad",
