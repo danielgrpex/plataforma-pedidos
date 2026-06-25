@@ -35,9 +35,16 @@ const TAB_META: Record<
     href: "/produccion/entregas-almacen",
     badge: "Almacén",
   },
+  "cola-inteligente": {
+  title: "Cola Inteligente",
+  desc: "Prioridad automática para planta según fecha requerida, avance del pedido y urgencia.",
+  href: "/produccion/cola-inteligente",
+  badge: "Prioridad",
+},
 };
 
 const ALL_TABS: ProduccionTabKey[] = [
+  "cola-inteligente",
   "pdfs",
   "reporte-maquinas",
   "reporte-empaque",

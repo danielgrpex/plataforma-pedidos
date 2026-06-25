@@ -19,6 +19,7 @@ export const MODULE_PERMISSIONS: Record<string, Role[]> = {
  */
 
 export type ProduccionTabKey =
+  | "cola-inteligente"
   | "pdfs"
   | "reporte-maquinas"
   | "reporte-empaque"
@@ -57,7 +58,7 @@ const PRODUCCION_SCOPE_BY_EMAIL: Record<string, ProduccionScope> = {
  * Esto es lo que hace que sea escalable.
  */
 const PRODUCCION_TABS_BY_SCOPE: Record<ProduccionScope, ProduccionTabKey[]> = {
-  coordinador_planta: ["pdfs", "reporte-maquinas", "reporte-empaque", "entregas-almacen"],
+  coordinador_planta: ["cola-inteligente","pdfs", "reporte-maquinas", "reporte-empaque", "entregas-almacen"],
   supervisor: ["pdfs", "reporte-maquinas", "reporte-empaque"],
   operario: ["reporte-maquinas", "reporte-empaque"],
   almacen: ["entregas-almacen"],
@@ -95,7 +96,7 @@ export function allowedProduccionTabsForUser(params: {
 }): ProduccionTabKey[] {
   const role = String(params.role || "").trim().toLowerCase();
   if (role === "admin") {
-    return ["pdfs", "reporte-maquinas", "reporte-empaque", "entregas-almacen"];
+    return ["cola-inteligente","pdfs", "reporte-maquinas", "reporte-empaque", "entregas-almacen"];
   }
 
   // si no es admin, se controla por email/scopes
