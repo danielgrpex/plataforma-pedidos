@@ -1,17 +1,11 @@
-//app/abastecimientologistica/_components/Tabs.tsx
 "use client";
 
 import React from "react";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
-
-
 export type TabKey =
+  | "turneroDespachos"
   | "despachosItems"
   | "itemsListos"
-  | "despachosOrden"
   | "confirmarEntrega"
   | "proveedores";
 
@@ -30,16 +24,16 @@ export function Tabs({
     <div className="rounded-2xl bg-white shadow-sm ring-1 ring-black/5">
       <div className="border-b border-neutral-200 px-4 pt-4">
         <div className="inline-flex w-full flex-wrap gap-1 rounded-xl bg-neutral-100 p-1">
+          <TabButton active={tab === "turneroDespachos"} onClick={() => setTab("turneroDespachos")}>
+            Turnero de despachos
+          </TabButton>
+
           <TabButton active={tab === "despachosItems"} onClick={() => setTab("despachosItems")}>
             Despachos por items
           </TabButton>
 
           <TabButton active={tab === "itemsListos"} onClick={() => setTab("itemsListos")}>
             Ítems listos para despacho
-          </TabButton>
-
-          <TabButton active={tab === "despachosOrden"} onClick={() => setTab("despachosOrden")}>
-            Despachos por orden completa
           </TabButton>
 
           <TabButton active={tab === "confirmarEntrega"} onClick={() => setTab("confirmarEntrega")}>

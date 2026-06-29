@@ -140,23 +140,31 @@ export default function ComercialListadoPage() {
           </p>
         </div>
 
-        {canCreate && (
-          <div className="flex gap-3">
-  <Link
-    href="/comercial/nuevo-soplado"
-    className="inline-flex items-center justify-center rounded-lg bg-blue-500 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-blue-600"
-  >
-    + Nuevo Pedido Soplado
-  </Link>
+{canCreate && (
+  <div className="flex items-center gap-3">
+    <Link
+      href="/comercial/turnero-despachos"
+      className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-5 text-sm font-medium text-slate-900 transition hover:border-slate-300 hover:bg-slate-50"
+    >
+      <span>Despachos estimados</span>
+      <span>→</span>
+    </Link>
 
-  <Link
-    href="/comercial/nuevo"
-    className="inline-flex items-center justify-center rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-emerald-700"
-  >
-    + Nuevo pedido
-  </Link>
-</div>
-        )}
+    <Link
+      href="/comercial/nuevo-soplado"
+      className="inline-flex h-11 items-center justify-center rounded-xl bg-blue-600 px-5 text-sm font-medium text-white shadow-sm transition hover:bg-blue-700"
+    >
+      + Nuevo Pedido Soplado
+    </Link>
+
+    <Link
+      href="/comercial/nuevo"
+      className="inline-flex h-11 items-center justify-center rounded-xl bg-emerald-600 px-5 text-sm font-medium text-white shadow-sm transition hover:bg-emerald-700"
+    >
+      + Nuevo pedido
+    </Link>
+  </div>
+)}
       </div>
 
       {/* Filtros */}

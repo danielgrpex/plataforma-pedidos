@@ -124,20 +124,27 @@ export default function PlaneacionListadoPage() {
 
         {/* Accesos rápidos */}
         <div className="flex flex-wrap items-center gap-2">
-          <Link
-            href="/planeacion/programacion"
-            className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
-          >
-            Programación
-          </Link>
+  <Link
+    href="/planeacion/programacion"
+    className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+  >
+    Programación
+  </Link>
 
-          <Link
-            href="/planeacion/ajustes-inventario"
-            className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm hover:bg-slate-50"
-          >
-            Ajustes de inventario
-          </Link>
-        </div>
+  <Link
+    href="/planeacion/secuencia-despachos"
+    className="rounded-xl border border-indigo-300 bg-indigo-50 px-4 py-2 text-sm font-semibold text-indigo-700 hover:bg-indigo-100"
+  >
+    Secuencia de despacho
+  </Link>
+
+  <Link
+    href="/planeacion/ajustes-inventario"
+    className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm hover:bg-slate-50"
+  >
+    Ajustes de inventario
+  </Link>
+</div>
       </div>
 
       {/* Buscador */}

@@ -3,16 +3,15 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-
+import { TurneroDespachosTab } from "./_components/TurneroDespachosTab";
 import { Tabs, TabKey } from "./_components/Tabs";
 import { DespachosItemsTab } from "./_components/DespachosItemsTab";
 import { ItemsListosTab } from "./_components/ItemsListosTab";
 import { ConfirmarEntregaTab } from "./_components/ConfirmarEntregaTab";
 import { ProveedoresTab } from "./_components/ProveedoresTab";
-import { DespachosOrdenTab } from "./_components/DespachosOrdenTab";
 
 export default function AbastecimientoLogisticaPage() {
-  const [tab, setTab] = useState<TabKey>("despachosItems");
+  const [tab, setTab] = useState<TabKey>("turneroDespachos");
 
   // Opcional: permitir deep-link por query (?tab=confirmarEntrega)
   useEffect(() => {
@@ -21,7 +20,7 @@ export default function AbastecimientoLogisticaPage() {
     const t = url.searchParams.get("tab") as TabKey | null;
     if (
       t &&
-      ["despachosItems", "itemsListos", "despachosOrden", "confirmarEntrega", "proveedores"].includes(t)
+      ["turneroDespachos","despachosItems", "itemsListos", "confirmarEntrega", "proveedores"].includes(t)
     ) {
       setTab(t);
     }
@@ -63,9 +62,9 @@ export default function AbastecimientoLogisticaPage() {
 
         {/* Content */}
         <div className="mt-6 space-y-4">
+          {tab === "turneroDespachos" && <TurneroDespachosTab />}
           {tab === "despachosItems" && <DespachosItemsTab />}
           {tab === "itemsListos" && <ItemsListosTab />}
-          {tab === "despachosOrden" && <DespachosOrdenTab />}
           {tab === "confirmarEntrega" && <ConfirmarEntregaTab />}
           {tab === "proveedores" && <ProveedoresTab />}
         </div>
