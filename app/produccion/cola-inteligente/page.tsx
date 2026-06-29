@@ -199,37 +199,46 @@ export default function ColaInteligentePage() {
   function exportarTurnoCSV() {
     const rows = [
       [
-        "Prioridad",
-        "Pedido",
-        "Cliente",
-        "Dirección",
-        "OC",
-        "Avance",
-        "Producto pendiente",
-        "Estado",
-        "Cantidad",
-        "OPE/OTE",
-        "Hecho",
-        "Observación",
-      ],
+  "Prioridad",
+  "Pedido",
+  "Consecutivo",
+  "Fecha Solicitud",
+  "Fecha Requerida Cliente",
+  "Cliente",
+  "Dirección",
+  "OC",
+  "Avance",
+  "Producto pendiente",
+  "Estado",
+  "Cantidad",
+  "OPE/OTE",
+  "Hecho",
+  "Observación",
+],
     ];
 
     grupos.forEach((g) => {
       g.items.forEach((item) => {
-        rows.push([
-          g.prioridad,
-          `Pedido #${g.pedido}`,
-          g.cliente || "",
-          g.direccion || "",
-          g.ordenCompra || "",
-          g.avancePedido || "",
-          item.producto || "",
-          item.estado || "",
-          String(item.cantidadUnd || ""),
-          item.ordenesTrabajo || "",
-          "",
-          "",
-        ]);
+const pedidoNum = Number(String(g.pedido || "").replace(/\D/g, ""));
+const consecutivo = Number.isFinite(pedidoNum) && pedidoNum > 0 ? pedidoNum + 1 : "";
+
+rows.push([
+  g.prioridad,
+  `Pedido #${g.pedido}`,
+  String(consecutivo),
+  g.fechaSolicitud || "",
+  g.fechaRequerida || "",
+  g.cliente || "",
+  g.direccion || "",
+  g.ordenCompra || "",
+  g.avancePedido || "",
+  item.producto || "",
+  item.estado || "",
+  String(item.cantidadUnd || ""),
+  item.ordenesTrabajo || "",
+  "",
+  "",
+]);
       });
     });
 
