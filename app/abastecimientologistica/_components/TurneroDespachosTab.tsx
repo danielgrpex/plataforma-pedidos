@@ -278,7 +278,7 @@ export function TurneroDespachosTab() {
   return (
     <section className="rounded-2xl border border-neutral-200 bg-white p-5">
       <HeaderBlock
-        title="Turnero de despachos"
+        title="Programación de despachos"
         subtitle="Secuencia oficial definida por Planeación. Logística ejecuta por fecha programada."
       />
 
