@@ -226,10 +226,16 @@ export function TurneroDespachosTab() {
         headers: { "Content-Type": "application/json" },
         cache: "no-store",
         body: JSON.stringify({
-          agruparPor: "pedido",
-          groupKey: selected.pedidosKey,
-          ...form,
-        }),
+  agruparPor: "pedido",
+  groupKey: selected.pedidosKey,
+
+  // Fallback por si el pedidoKey de SecuenciaDespachos no coincide exacto con Pedidos
+  cliente: selected.cliente,
+  direccion: selected.direccion,
+  oc: selected.oc,
+
+  ...form,
+}),
       });
 
       const data = await res.json();
@@ -243,9 +249,11 @@ export function TurneroDespachosTab() {
         headers: { "Content-Type": "application/json" },
         cache: "no-store",
         body: JSON.stringify({
-          pedidosKey: selected.pedidosKey,
-          action: "despachado",
-        }),
+  pedidosKey: selected.pedidosKey,
+  action: "despachado",
+  fechaEstimadaDespacho: selected.fechaEstimadaDespacho,
+  fechaProgramacion: selected.fechaProgramacion,
+}),
       });
 
       const secData = await secRes.json();
@@ -257,9 +265,15 @@ export function TurneroDespachosTab() {
       }
 
       setSelected(null);
-      setForm(emptyForm);
-      setMessage(`Despacho realizado correctamente. Ítems despachados: ${data.itemsDespachados}`);
-      await cargar(fecha);
+setForm(emptyForm);
+
+setMessage(
+  data.alreadyDispatched
+    ? "El pedido ya tenía el despacho registrado. Se cerró correctamente en la secuencia."
+    : `Despacho realizado correctamente. Ítems despachados: ${data.itemsDespachados}`
+);
+
+await cargar(fecha);
     } catch (err: any) {
       setMessage(err?.message || "Error despachando turno");
     } finally {
@@ -521,33 +535,50 @@ export function TurneroDespachosTab() {
       )}
 
       {siguientes.length > 0 && (
-        <div className="mt-5 rounded-2xl border border-neutral-200">
-          <div className="border-b border-neutral-200 bg-neutral-50 px-4 py-3 text-sm font-bold text-neutral-700">
-            En cola para {fechaLabel(fecha)}
+  <div className="mt-5 rounded-2xl border border-neutral-200">
+    <div className="border-b border-neutral-200 bg-neutral-50 px-4 py-3 text-sm font-bold text-neutral-700">
+      En cola para {fechaLabel(fecha)}
+    </div>
+
+    <div className="divide-y divide-neutral-100">
+      {siguientes.map((s, idx) => (
+        <div
+          key={`${idx + 2}-${s.pedidosKey}`}
+          className="flex flex-wrap items-center gap-4 p-4"
+        >
+          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-neutral-100 text-sm font-black text-neutral-700">
+            {idx + 2}
           </div>
 
-          <div className="divide-y divide-neutral-100">
-            {siguientes.map((s, idx) => (
-              <div key={`${idx + 2}-${s.pedidosKey}`} className="flex items-center gap-4 p-4">
-                <div className="flex h-9 w-9 items-center justify-center rounded-full bg-neutral-100 text-sm font-black text-neutral-700">
-                  {idx + 2}
-                </div>
+          <div className="min-w-0 flex-1">
+            <div className="font-bold text-neutral-900">
+              {s.cliente || s.pedidosKey}
+            </div>
 
-                <div className="min-w-0 flex-1">
-                  <div className="font-bold text-neutral-900">{s.cliente || s.pedidosKey}</div>
-                  <div className="text-xs text-neutral-500">
-                    Dirección: {s.direccion || "-"} · OC: {s.oc || "-"}
-                  </div>
-                </div>
+            <div className="text-xs text-neutral-500">
+              Dirección: {s.direccion || "-"} · OC: {s.oc || "-"}
+            </div>
+          </div>
 
-                <span className="rounded-full bg-neutral-100 px-3 py-1 text-xs font-semibold text-neutral-600">
-                  {s.estado || "Programado"}
-                </span>
-              </div>
-            ))}
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="rounded-full bg-neutral-100 px-3 py-1 text-xs font-semibold text-neutral-600">
+              {s.estado || "Programado"}
+            </span>
+
+            <button
+              type="button"
+              onClick={() => openModal(s)}
+              disabled={loading || saving}
+              className="rounded-xl bg-neutral-900 px-4 py-2 text-sm font-bold text-white hover:bg-neutral-800 disabled:opacity-60"
+            >
+              Despachar
+            </button>
           </div>
         </div>
-      )}
+      ))}
+    </div>
+  </div>
+)}
 
       {selected && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">

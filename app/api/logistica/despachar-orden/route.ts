@@ -28,7 +28,14 @@ function norm(v: any) {
 function lower(v: any) {
   return norm(v).toLowerCase();
 }
-
+function soft(v: any) {
+  return norm(v)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
 function uid(prefix: string) {
   return `${prefix}-${Math.random().toString(16).slice(2)}-${Date.now().toString(16)}`;
 }
@@ -180,9 +187,10 @@ async function batchUpdatePedidos(
 }
 
 const COL_PED = {
-  pedidosKey: ["pedidosKey", "PedidosKey", "pedidoKey", "PedidoKey"],
+   pedidosKey: ["pedidosKey", "PedidosKey", "pedidoKey", "PedidoKey"],
   consecutivo: ["Consecutivo", "consecutivo"],
   cliente: ["Cliente", "cliente"],
+  oc: ["Orden de Compra", "Orden Compra", "OC", "oc"],
   direccion: [
     "Dirección y ciudad de despacho",
     "Direccion y ciudad de despacho",
@@ -232,6 +240,11 @@ type Body = {
   agruparPor: "pedido" | "clienteDireccion";
   groupKey: string;
   usuario: string;
+
+  cliente?: string;
+  direccion?: string;
+  oc?: string;
+
   fechaRealDespacho?: string;
   transporte?: string;
   guia?: string;
@@ -255,6 +268,9 @@ export async function POST(req: Request) {
     const factura = norm(body.factura);
     const remision = norm(body.remision);
     const observaciones = norm(body.observaciones);
+    const clienteFallback = norm(body.cliente);
+const direccionFallback = norm(body.direccion);
+const ocFallback = norm(body.oc);
 
     if (!groupKey) {
       return NextResponse.json({ success: false, message: "Falta groupKey" }, { status: 400 });
@@ -279,9 +295,10 @@ export async function POST(req: Request) {
     ]);
 
     const iKey = findCol(pedH, COL_PED.pedidosKey);
-    const iCli = findCol(pedH, COL_PED.cliente);
-    const iDir = findCol(pedH, COL_PED.direccion);
-    const iUnd = findCol(pedH, COL_PED.cantidadUnd);
+const iCli = findCol(pedH, COL_PED.cliente);
+const iDir = findCol(pedH, COL_PED.direccion);
+const iOc = findCol(pedH, COL_PED.oc);
+const iUnd = findCol(pedH, COL_PED.cantidadUnd);
     const iEst = findCol(pedH, COL_PED.estado);
     const iFechaReal = findCol(pedH, COL_PED.fechaRealDespacho);
     const iTransp = findCol(pedH, COL_PED.transporte);
@@ -340,13 +357,15 @@ export async function POST(req: Request) {
       sumDespachado.set(k, (sumDespachado.get(k) || 0) + cant);
     }
 
-    const rowsToDispatch: Array<{
-      pedidosKey: string;
-      pedidoRowIndex: number;
-      pendienteUnd: number;
-    }> = [];
+const rowsToDispatch: Array<{
+  pedidosKey: string;
+  pedidoRowIndex: number;
+  pendienteUnd: number;
+}> = [];
 
-    for (let idx0 = 0; idx0 < pedR.length; idx0++) {
+let matchedRows = 0;
+
+for (let idx0 = 0; idx0 < pedR.length; idx0++) {
       const r = pedR[idx0];
 
       const pedidosKey = norm(r[iKey]);
@@ -360,7 +379,9 @@ export async function POST(req: Request) {
 
       if (currentGroupKey !== groupKey) continue;
 
-      const pedidoRowIndex = idx0 + 2;
+matchedRows += 1;
+
+const pedidoRowIndex = idx0 + 2;
 const solicitado = safeNum(r[iUnd]);
 const yaDespachado = sumDespachado.get(`${pedidosKey}__${pedidoRowIndex}`) || 0;
 const pendienteUnd = Math.max(0, solicitado - yaDespachado);
@@ -390,11 +411,28 @@ if (!listo) {
     }
 
     if (!rowsToDispatch.length) {
-      return NextResponse.json(
-        { success: false, message: "No hay ítems pendientes para despachar en este grupo." },
-        { status: 400 }
-      );
-    }
+  if (matchedRows > 0) {
+    return NextResponse.json({
+      success: true,
+      agruparPor,
+      groupKey,
+      itemsDespachados: 0,
+      unidadesDespachadas: 0,
+      fechaISO,
+      alreadyDispatched: true,
+      message:
+        "Este pedido ya no tiene ítems pendientes por despachar. Se puede cerrar en la secuencia.",
+    });
+  }
+
+  return NextResponse.json(
+    {
+      success: false,
+      message: "No encontré filas en Pedidos para este grupo.",
+    },
+    { status: 404 }
+  );
+}
 
     const desRowsToAppend: any[][] = [];
     const movRowsToAppend: any[][] = [];
