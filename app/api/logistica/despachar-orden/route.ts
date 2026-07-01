@@ -372,12 +372,35 @@ for (let idx0 = 0; idx0 < pedR.length; idx0++) {
       if (!pedidosKey) continue;
 
       const cliente = iCli >= 0 ? norm(r[iCli]) : "";
-      const direccionDespacho = iDir >= 0 ? norm(r[iDir]) : "";
-      const clienteDireccion = `${cliente} - ${direccionDespacho}`.replace(/\s+/g, " ").trim();
+const direccionDespacho = iDir >= 0 ? norm(r[iDir]) : "";
+const oc = iOc >= 0 ? norm(r[iOc]) : "";
 
-      const currentGroupKey = agruparPor === "clienteDireccion" ? clienteDireccion : pedidosKey;
+const clienteDireccion = `${cliente} - ${direccionDespacho}`
+  .replace(/\s+/g, " ")
+  .trim();
 
-      if (currentGroupKey !== groupKey) continue;
+const currentGroupKey =
+  agruparPor === "clienteDireccion" ? clienteDireccion : pedidosKey;
+
+let match = currentGroupKey === groupKey;
+
+// Fallback para pedidos represados antiguos:
+// si el pedidosKey de SecuenciaDespachos no coincide con Pedidos,
+// buscamos por Cliente + Dirección + OC.
+if (
+  !match &&
+  agruparPor === "pedido" &&
+  clienteFallback &&
+  direccionFallback
+) {
+  const sameCliente = soft(cliente) === soft(clienteFallback);
+  const sameDireccion = soft(direccionDespacho) === soft(direccionFallback);
+  const sameOc = !ocFallback || soft(oc) === soft(ocFallback);
+
+  match = sameCliente && sameDireccion && sameOc;
+}
+
+if (!match) continue;
 
 matchedRows += 1;
 
@@ -428,7 +451,8 @@ if (!listo) {
   return NextResponse.json(
     {
       success: false,
-      message: "No encontré filas en Pedidos para este grupo.",
+      message:
+        "No encontré filas en Pedidos para este grupo. Revisar pedidoKey o datos de Cliente + Dirección + OC.",
     },
     { status: 404 }
   );
