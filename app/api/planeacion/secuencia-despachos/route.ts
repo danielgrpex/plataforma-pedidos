@@ -330,13 +330,50 @@ const futuros = secuenciaCompleta
       grupos.set(pedidosKey, g);
     }
 
-    const disponibles = Array.from(grupos.values())
-      .filter((g) => {
-        if (yaEnSecuencia.has(g.pedidosKey)) return false;
-        if (g.itemsTotales <= 0) return false;
-        return g.itemsTotales === g.itemsAlmacen;
-      })
-      .sort((a, b) => String(a.fechaRequerida).localeCompare(String(b.fechaRequerida)));
+    const candidatos = Array.from(grupos.values())
+  .filter((g) => {
+    // Ya está programado en alguna fecha activa
+    if (yaEnSecuencia.has(g.pedidosKey)) {
+      return false;
+    }
+
+    // Protección básica
+    if (g.itemsTotales <= 0) {
+      return false;
+    }
+
+    return true;
+  })
+  .sort((a, b) =>
+    String(a.fechaRequerida).localeCompare(
+      String(b.fechaRequerida)
+    )
+  );
+
+// Pedidos completamente listos en Almacén
+const disponibles = candidatos
+  .filter(
+    (g) =>
+      g.itemsTotales > 0 &&
+      g.itemsTotales === g.itemsAlmacen
+  )
+  .map((g) => ({
+    ...g,
+    tipoDisponibilidad: "completo",
+  }));
+
+// Pedidos que todavía no están completos en Almacén,
+// pero Planeación puede programar para despacho parcial.
+const parciales = candidatos
+  .filter(
+    (g) =>
+      g.itemsTotales > 0 &&
+      g.itemsTotales !== g.itemsAlmacen
+  )
+  .map((g) => ({
+    ...g,
+    tipoDisponibilidad: "parcial",
+  }));
 
     return NextResponse.json(
   {
@@ -346,8 +383,12 @@ const futuros = secuenciaCompleta
     secuencia,
     futuros,
     disponibles,
+    parciales,
   },
-  { status: 200, headers: NO_STORE_HEADERS }
+  {
+    status: 200,
+    headers: NO_STORE_HEADERS,
+  }
 );
   } catch (err: any) {
     console.error(err);

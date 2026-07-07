@@ -13,6 +13,7 @@ type Disponible = {
   itemsTotales: number;
   itemsAlmacen: number;
   cantidadTotalUnd: number;
+  tipoDisponibilidad?: "completo" | "parcial";
 };
 
 type Secuencia = {
@@ -48,6 +49,7 @@ function formatFecha(value?: string) {
 export default function SecuenciaDespachosPage() {
   const [fecha, setFecha] = useState(todayISO());
   const [disponibles, setDisponibles] = useState<Disponible[]>([]);
+  const [parciales, setParciales] = useState<Disponible[]>([]);
   const [secuencia, setSecuencia] = useState<Secuencia[]>([]);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
@@ -69,7 +71,8 @@ export default function SecuenciaDespachosPage() {
       }
 
       setDisponibles(data.disponibles || []);
-      setSecuencia(data.secuencia || []);
+setParciales(data.parciales || []);
+setSecuencia(data.secuencia || []);
     } catch (err: any) {
       setMessage(err?.message || "Error cargando secuencia de despachos");
     } finally {
@@ -244,6 +247,7 @@ export default function SecuenciaDespachosPage() {
       )}
 
       <section className="mt-6 grid gap-5 lg:grid-cols-2">
+        <div className="space-y-5">
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="mb-4">
             <h2 className="text-base font-bold text-slate-900">
@@ -312,7 +316,112 @@ export default function SecuenciaDespachosPage() {
             ))}
           </div>
         </div>
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5 shadow-sm">
+  <div className="mb-4">
+    <div className="text-xs font-bold uppercase tracking-wide text-amber-700">
+      Despachos parciales
+    </div>
 
+    <h2 className="mt-1 text-base font-bold text-slate-900">
+      Pedidos para programar como despacho parcial
+    </h2>
+
+    <p className="mt-1 text-sm text-amber-800">
+      Estos pedidos todavía no están completos en Almacén.
+      Planeación puede programarlos cuando exista una cantidad parcial
+      disponible para despachar.
+    </p>
+  </div>
+
+  <div className="space-y-3">
+    {parciales.length === 0 && (
+      <div className="rounded-xl bg-white p-4 text-sm text-slate-500 ring-1 ring-amber-100">
+        {loading
+          ? "Cargando..."
+          : "No hay pedidos activos para programar parcialmente."}
+      </div>
+    )}
+
+    {parciales.map((p) => (
+      <div
+        key={p.pedidosKey}
+        className="rounded-2xl border border-amber-200 bg-white p-4"
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="font-black text-slate-900">
+              Pedido #{p.consecutivo || p.pedidosKey}
+            </div>
+
+            <div className="mt-1 text-sm font-semibold text-slate-700">
+              {p.cliente || "-"}
+            </div>
+
+            <div className="mt-1 text-xs text-slate-500">
+              Dirección: {p.direccion || "-"}
+            </div>
+
+            <div className="text-xs text-slate-500">
+              OC: {p.oc || "-"}
+            </div>
+          </div>
+
+          <div className="shrink-0 text-right text-xs text-slate-500">
+            <div>
+              Ítems en Almacén:{" "}
+              <b>
+                {p.itemsAlmacen}/{p.itemsTotales}
+              </b>
+            </div>
+
+            <div>
+              Pedido total:{" "}
+              <b>{p.cantidadTotalUnd} und</b>
+            </div>
+
+            <div>
+              Req:{" "}
+              <b>{p.fechaRequerida || "-"}</b>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-3 rounded-xl border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          <b>Importante:</b> Planeación debe confirmar que existe una
+          cantidad físicamente disponible antes de programar este pedido
+          para despacho parcial.
+        </div>
+
+        <div className="mt-4 flex flex-wrap justify-end gap-2">
+          <button
+            onClick={() =>
+              agregar(
+                p,
+                "Despacho parcial"
+              )
+            }
+            className="rounded-xl bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700"
+          >
+            Programar despacho parcial
+          </button>
+
+          <button
+            onClick={() =>
+              agregar(
+                p,
+                "Despacho parcial · Prioridad especial"
+              )
+            }
+            className="rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-100"
+          >
+            Parcial prioritario
+          </button>
+        </div>
+      </div>
+    ))}
+  </div>
+</div>
+</div>
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="mb-4">
             <h2 className="text-base font-bold text-slate-900">

@@ -37,6 +37,18 @@ type FormState = {
   observaciones: string;
 };
 
+type SaldoItem = {
+  pedidosKey: string;
+  pedidoRowIndex: number;
+  producto: string;
+  estado: string;
+  solicitado: number;
+  yaDespachado: number;
+  pendiente: number;
+};
+
+type ModoDespacho = "completo" | "parcial";
+
 const emptyForm: FormState = {
   usuario: "",
   fechaRealDespacho: "",
@@ -71,7 +83,20 @@ export function TurneroDespachosTab() {
   const [message, setMessage] = useState("");
   const [selected, setSelected] = useState<Secuencia | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
+  const [modoDespacho, setModoDespacho] =
+  useState<ModoDespacho>("completo");
 
+const [saldoItems, setSaldoItems] =
+  useState<SaldoItem[]>([]);
+
+const [cantidadesParciales, setCantidadesParciales] =
+  useState<Record<number, string>>({});
+
+const [loadingSaldo, setLoadingSaldo] =
+  useState(false);
+
+const [saldoError, setSaldoError] =
+  useState("");
   const [manifests, setManifests] = useState<Manifest[]>([]);
   const [carrier, setCarrier] = useState("");
   const [manifestFile, setManifestFile] = useState<File | null>(null);
@@ -255,92 +280,273 @@ export function TurneroDespachosTab() {
     }
   }
 
-  function openModal(item: Secuencia) {
-    setSelected(item);
-    setForm({
-      ...emptyForm,
-      fechaRealDespacho: fecha,
-    });
-    setMessage("");
+  async function openModal(item: Secuencia) {
+  setSelected(item);
+
+  setForm({
+    ...emptyForm,
+    fechaRealDespacho: fecha,
+  });
+
+  setModoDespacho("completo");
+  setSaldoItems([]);
+  setCantidadesParciales({});
+  setSaldoError("");
+  setMessage("");
+
+  try {
+    setLoadingSaldo(true);
+
+    const res = await fetch(
+      `/api/logistica/despachar-orden?pedidoKey=${encodeURIComponent(
+        item.pedidosKey
+      )}`,
+      {
+        cache: "no-store",
+      }
+    );
+
+    const data = await res.json();
+
+    if (!res.ok || !data.success) {
+      throw new Error(
+        data.message ||
+          "No se pudo consultar el saldo pendiente del pedido."
+      );
+    }
+
+    setSaldoItems(
+      Array.isArray(data.items)
+        ? data.items
+        : []
+    );
+  } catch (err: any) {
+    setSaldoError(
+      err?.message ||
+        "Error consultando saldo pendiente."
+    );
+  } finally {
+    setLoadingSaldo(false);
   }
+}
 
   async function despacharSeleccionado() {
-    if (!selected) return;
+  if (!selected) return;
 
-    if (!form.usuario.trim()) {
-      setMessage("Debes digitar el usuario de logística.");
+  if (!form.usuario.trim()) {
+    setMessage(
+      "Debes digitar el usuario de logística."
+    );
+    return;
+  }
+
+  let itemsParciales: Array<{
+    pedidoRowIndex: number;
+    cantidadUnd: number;
+  }> = [];
+
+  let totalParcial = 0;
+
+  if (modoDespacho === "parcial") {
+    itemsParciales = saldoItems
+      .map((item) => {
+        const raw =
+          cantidadesParciales[
+            item.pedidoRowIndex
+          ] || "";
+
+        const cantidad = Number(
+          String(raw).replace(",", ".")
+        );
+
+        return {
+          pedidoRowIndex:
+            item.pedidoRowIndex,
+          cantidadUnd:
+            Number.isFinite(cantidad)
+              ? cantidad
+              : 0,
+        };
+      })
+      .filter(
+        (item) => item.cantidadUnd > 0
+      );
+
+    if (!itemsParciales.length) {
+      setMessage(
+        "Debes digitar al menos una cantidad para el despacho parcial."
+      );
       return;
     }
 
-    const ok = window.confirm(
-      `¿Confirmas despachar este pedido?\n\n${selected.cliente}\nOC: ${selected.oc}`
-    );
+    for (const itemParcial of itemsParciales) {
+      const saldo = saldoItems.find(
+        (x) =>
+          x.pedidoRowIndex ===
+          itemParcial.pedidoRowIndex
+      );
 
-    if (!ok) return;
+      if (!saldo) continue;
 
-    setSaving(true);
-    setMessage("");
+      if (
+        itemParcial.cantidadUnd >
+        saldo.pendiente
+      ) {
+        setMessage(
+          `La cantidad digitada para ${saldo.producto || `fila ${saldo.pedidoRowIndex}`} supera el pendiente de ${saldo.pendiente}.`
+        );
+        return;
+      }
 
-    try {
-      const res = await fetch("/api/logistica/despachar-orden", {
+      totalParcial +=
+        itemParcial.cantidadUnd;
+    }
+  }
+
+  const mensajeConfirmacion =
+    modoDespacho === "parcial"
+      ? `¿Confirmas registrar este despacho parcial?\n\n${selected.cliente}\nOC: ${selected.oc}\nCantidad total a despachar ahora: ${totalParcial}`
+      : `¿Confirmas despachar completamente este pedido?\n\n${selected.cliente}\nOC: ${selected.oc}`;
+
+  const ok = window.confirm(
+    mensajeConfirmacion
+  );
+
+  if (!ok) return;
+
+  setSaving(true);
+  setMessage("");
+
+  try {
+    const res = await fetch(
+      "/api/logistica/despachar-orden",
+      {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type":
+            "application/json",
+        },
         cache: "no-store",
         body: JSON.stringify({
-          agruparPor: "pedido",
-          groupKey: selected.pedidosKey,
+          modo: modoDespacho,
 
-          // Fallback por si el pedidoKey de SecuenciaDespachos no coincide exacto con Pedidos
-          cliente: selected.cliente,
-          direccion: selected.direccion,
-          oc: selected.oc,
+          agruparPor: "pedido",
+          groupKey:
+            selected.pedidosKey,
+
+          cliente:
+            selected.cliente,
+          direccion:
+            selected.direccion,
+          oc:
+            selected.oc,
+
+          ...(modoDespacho === "parcial"
+            ? {
+                items: itemsParciales,
+              }
+            : {}),
 
           ...form,
         }),
-      });
-
-      const data = await res.json();
-
-      if (!res.ok || !data.success) {
-        throw new Error(data.message || "No se pudo despachar");
       }
+    );
 
-      const secRes = await fetch("/api/planeacion/secuencia-despachos", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        cache: "no-store",
-        body: JSON.stringify({
-          pedidosKey: selected.pedidosKey,
-          action: "despachado",
-          fechaEstimadaDespacho: selected.fechaEstimadaDespacho,
-          fechaProgramacion: selected.fechaProgramacion,
-        }),
-      });
+    const data = await res.json();
 
-      const secData = await secRes.json();
+    if (!res.ok || !data.success) {
+      throw new Error(
+        data.message ||
+          "No se pudo registrar el despacho."
+      );
+    }
 
-      if (!secRes.ok || !secData.success) {
-        throw new Error(
-          secData.message || "El despacho se registró, pero no se pudo cerrar en la secuencia."
-        );
-      }
-
-      setSelected(null);
-      setForm(emptyForm);
-
-      setMessage(
-        data.alreadyDispatched
-          ? "El pedido ya tenía el despacho registrado. Se cerró correctamente en la secuencia."
-          : `Despacho realizado correctamente. Ítems despachados: ${data.itemsDespachados}`
+    /**
+     * SOLO cerramos la secuencia
+     * si el pedido quedó 100% despachado.
+     */
+    if (data.pedidoCompleto) {
+      const secRes = await fetch(
+        "/api/planeacion/secuencia-despachos",
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type":
+              "application/json",
+          },
+          cache: "no-store",
+          body: JSON.stringify({
+            pedidosKey:
+              selected.pedidosKey,
+            action: "despachado",
+            fechaEstimadaDespacho:
+              selected.fechaEstimadaDespacho,
+            fechaProgramacion:
+              selected.fechaProgramacion,
+          }),
+        }
       );
 
-      await cargar(fecha);
-    } catch (err: any) {
-      setMessage(err?.message || "Error despachando turno");
-    } finally {
-      setSaving(false);
+      const secData =
+        await secRes.json();
+
+      if (
+        !secRes.ok ||
+        !secData.success
+      ) {
+        throw new Error(
+          secData.message ||
+            "El despacho se registró, pero no se pudo cerrar en la secuencia."
+        );
+      }
     }
+
+    setSelected(null);
+    setForm(emptyForm);
+    setSaldoItems([]);
+    setCantidadesParciales({});
+    setModoDespacho("completo");
+
+    if (data.alreadyDispatched) {
+      setMessage(
+        "El pedido ya tenía el despacho completo registrado y se cerró correctamente en la secuencia."
+      );
+    } else if (data.despachoParcial) {
+      const pendienteTotal =
+        Array.isArray(data.detalle)
+          ? data.detalle.reduce(
+              (
+                acc: number,
+                item: any
+              ) =>
+                acc +
+                Number(
+                  item.pendienteDespues ||
+                    0
+                ),
+              0
+            )
+          : 0;
+
+      setMessage(
+        `Despacho parcial registrado correctamente. Unidades despachadas ahora: ${data.unidadesDespachadas}. Pendiente reportado en los ítems afectados: ${pendienteTotal}. El pedido continúa activo en la programación.`
+      );
+    } else {
+      setMessage(
+        `Despacho completo registrado correctamente. Ítems despachados: ${data.itemsDespachados}.`
+      );
+    }
+
+    await cargar(fecha);
+  } catch (err: any) {
+    setMessage(
+      err?.message ||
+        "Error despachando pedido."
+    );
+  } finally {
+    setSaving(false);
   }
+}
 
   useEffect(() => {
     refrescar(fecha);
@@ -668,113 +874,387 @@ export function TurneroDespachosTab() {
       )}
 
       {selected && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
-          <div className="w-full max-w-2xl rounded-2xl bg-white p-5 shadow-xl">
-            <div className="mb-4">
-              <h3 className="text-lg font-semibold text-neutral-900">
-                Despachar pedido
-              </h3>
+  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
+    <div className="max-h-[92vh] w-full max-w-5xl overflow-y-auto rounded-2xl bg-white p-5 shadow-xl">
+      <div className="mb-4">
+        <h3 className="text-lg font-semibold text-neutral-900">
+          Despachar pedido
+        </h3>
 
-              <p className="mt-1 text-sm text-neutral-600">
-                {selected.cliente || selected.pedidosKey}
-              </p>
+        <p className="mt-1 text-sm text-neutral-600">
+          {selected.cliente ||
+            selected.pedidosKey}
+        </p>
 
-              <p className="mt-1 text-xs text-neutral-500">
-                Dirección: {selected.direccion || "-"} · OC: {selected.oc || "-"}
-              </p>
-            </div>
+        <p className="mt-1 text-xs text-neutral-500">
+          Dirección:{" "}
+          {selected.direccion || "-"} ·
+          OC: {selected.oc || "-"}
+        </p>
+      </div>
 
-            <div className="grid gap-3 md:grid-cols-2">
-              <Field label="Usuario logística">
-                <input
-                  value={form.usuario}
-                  onChange={(e) => setForm({ ...form, usuario: e.target.value })}
-                  placeholder="Ej: Leidy / Dalia / Logística"
-                  className="w-full rounded-xl border border-neutral-200 px-3 py-2"
-                />
-              </Field>
+      {/* MODO DE DESPACHO */}
+      <div className="mb-5 rounded-2xl border border-neutral-200 bg-neutral-50 p-4">
+        <div className="text-sm font-semibold text-neutral-900">
+          Tipo de despacho
+        </div>
 
-              <Field label="Fecha real de despacho">
-                <input
-                  type="date"
-                  value={form.fechaRealDespacho}
-                  onChange={(e) =>
-                    setForm({ ...form, fechaRealDespacho: e.target.value })
-                  }
-                  className="w-full rounded-xl border border-neutral-200 px-3 py-2"
-                />
-              </Field>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() =>
+              setModoDespacho(
+                "completo"
+              )
+            }
+            className={
+              modoDespacho ===
+              "completo"
+                ? "rounded-xl bg-neutral-900 px-4 py-2 text-sm font-semibold text-white"
+                : "rounded-xl border border-neutral-200 bg-white px-4 py-2 text-sm font-semibold text-neutral-700 hover:bg-neutral-50"
+            }
+          >
+            Despacho completo
+          </button>
 
-              <Field label="Transporte">
-                <input
-                  value={form.transporte}
-                  onChange={(e) => setForm({ ...form, transporte: e.target.value })}
-                  placeholder="Ej: Propio / Envía / Servientrega"
-                  className="w-full rounded-xl border border-neutral-200 px-3 py-2"
-                />
-              </Field>
+          <button
+            type="button"
+            onClick={() =>
+              setModoDespacho(
+                "parcial"
+              )
+            }
+            className={
+              modoDespacho ===
+              "parcial"
+                ? "rounded-xl bg-amber-600 px-4 py-2 text-sm font-semibold text-white"
+                : "rounded-xl border border-neutral-200 bg-white px-4 py-2 text-sm font-semibold text-neutral-700 hover:bg-neutral-50"
+            }
+          >
+            Despacho parcial
+          </button>
+        </div>
 
-              <Field label="Guía">
-                <input
-                  value={form.guia}
-                  onChange={(e) => setForm({ ...form, guia: e.target.value })}
-                  placeholder="Ej: 123456"
-                  className="w-full rounded-xl border border-neutral-200 px-3 py-2"
-                />
-              </Field>
+        <p className="mt-2 text-xs text-neutral-500">
+          {modoDespacho ===
+          "completo"
+            ? "El sistema intentará despachar todo el saldo pendiente del pedido."
+            : "Digita únicamente la cantidad que realmente sale en este despacho."}
+        </p>
+      </div>
 
-              <Field label="Factura">
-                <input
-                  value={form.factura}
-                  onChange={(e) => setForm({ ...form, factura: e.target.value })}
-                  placeholder="Ej: FV-001"
-                  className="w-full rounded-xl border border-neutral-200 px-3 py-2"
-                />
-              </Field>
+      {/* SALDO DEL PEDIDO */}
+      <div className="mb-5 rounded-2xl border border-neutral-200">
+        <div className="border-b border-neutral-200 bg-neutral-50 px-4 py-3">
+          <div className="font-semibold text-neutral-900">
+            Cantidades del pedido
+          </div>
 
-              <Field label="Remisión">
-                <input
-                  value={form.remision}
-                  onChange={(e) => setForm({ ...form, remision: e.target.value })}
-                  placeholder="Ej: RM-001"
-                  className="w-full rounded-xl border border-neutral-200 px-3 py-2"
-                />
-              </Field>
-
-              <div className="md:col-span-2">
-                <Field label="Observaciones">
-                  <textarea
-                    value={form.observaciones}
-                    onChange={(e) => setForm({ ...form, observaciones: e.target.value })}
-                    placeholder="Observaciones del despacho..."
-                    className="min-h-24 w-full rounded-xl border border-neutral-200 px-3 py-2"
-                  />
-                </Field>
-              </div>
-            </div>
-
-            <div className="mt-5 flex justify-end gap-3">
-              <button
-                type="button"
-                onClick={() => setSelected(null)}
-                disabled={saving}
-                className="rounded-xl border border-neutral-200 bg-white px-4 py-2 text-sm font-semibold hover:bg-neutral-50 disabled:opacity-60"
-              >
-                Cancelar
-              </button>
-
-              <button
-                type="button"
-                onClick={despacharSeleccionado}
-                disabled={saving}
-                className="rounded-xl bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-700 disabled:opacity-60"
-              >
-                {saving ? "Despachando..." : "Confirmar despacho"}
-              </button>
-            </div>
+          <div className="mt-1 text-xs text-neutral-500">
+            Solicitado vs. despachado
+            acumulado vs. pendiente.
           </div>
         </div>
-      )}
+
+        {loadingSaldo ? (
+          <div className="p-5 text-sm text-neutral-500">
+            Consultando cantidades...
+          </div>
+        ) : saldoError ? (
+          <div className="m-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {saldoError}
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[820px] text-left text-sm">
+              <thead className="bg-white text-xs uppercase text-neutral-500">
+                <tr>
+                  <th className="px-4 py-3">
+                    Producto
+                  </th>
+
+                  <th className="px-4 py-3 text-right">
+                    Solicitado
+                  </th>
+
+                  <th className="px-4 py-3 text-right">
+                    Ya despachado
+                  </th>
+
+                  <th className="px-4 py-3 text-right">
+                    Pendiente
+                  </th>
+
+                  {modoDespacho ===
+                    "parcial" && (
+                    <th className="px-4 py-3 text-right">
+                      Despachar ahora
+                    </th>
+                  )}
+                </tr>
+              </thead>
+
+              <tbody className="divide-y divide-neutral-100">
+                {saldoItems.map(
+                  (item) => (
+                    <tr
+                      key={
+                        item.pedidoRowIndex
+                      }
+                    >
+                      <td className="px-4 py-3">
+                        <div className="font-medium text-neutral-900">
+                          {item.producto ||
+                            "Producto"}
+                        </div>
+
+                        <div className="mt-1 text-xs text-neutral-500">
+                          Estado actual:{" "}
+                          {item.estado || "-"}
+                        </div>
+                      </td>
+
+                      <td className="px-4 py-3 text-right font-semibold">
+                        {item.solicitado}
+                      </td>
+
+                      <td className="px-4 py-3 text-right">
+                        {
+                          item.yaDespachado
+                        }
+                      </td>
+
+                      <td className="px-4 py-3 text-right font-semibold text-amber-700">
+                        {item.pendiente}
+                      </td>
+
+                      {modoDespacho ===
+                        "parcial" && (
+                        <td className="px-4 py-3 text-right">
+                          <input
+                            type="number"
+                            min="0"
+                            max={
+                              item.pendiente
+                            }
+                            step="any"
+                            disabled={
+                              item.pendiente <=
+                              0
+                            }
+                            value={
+                              cantidadesParciales[
+                                item
+                                  .pedidoRowIndex
+                              ] || ""
+                            }
+                            onChange={(
+                              e
+                            ) =>
+                              setCantidadesParciales(
+                                (
+                                  prev
+                                ) => ({
+                                  ...prev,
+                                  [
+                                    item
+                                      .pedidoRowIndex
+                                  ]:
+                                    e
+                                      .target
+                                      .value,
+                                })
+                              )
+                            }
+                            placeholder="0"
+                            className="w-32 rounded-xl border border-neutral-200 px-3 py-2 text-right outline-none focus:ring-2 focus:ring-amber-500/20 disabled:bg-neutral-100"
+                          />
+                        </td>
+                      )}
+                    </tr>
+                  )
+                )}
+
+                {!saldoItems.length && (
+                  <tr>
+                    <td
+                      colSpan={
+                        modoDespacho ===
+                        "parcial"
+                          ? 5
+                          : 4
+                      }
+                      className="px-4 py-6 text-center text-sm text-neutral-500"
+                    >
+                      No hay información de
+                      saldo disponible.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* DATOS DEL DESPACHO */}
+      <div className="grid gap-3 md:grid-cols-2">
+        <Field label="Usuario logística">
+          <input
+            value={form.usuario}
+            onChange={(e) =>
+              setForm({
+                ...form,
+                usuario:
+                  e.target.value,
+              })
+            }
+            placeholder="Ej: Leidy / Dalia / Logística"
+            className="w-full rounded-xl border border-neutral-200 px-3 py-2"
+          />
+        </Field>
+
+        <Field label="Fecha real de despacho">
+          <input
+            type="date"
+            value={
+              form.fechaRealDespacho
+            }
+            onChange={(e) =>
+              setForm({
+                ...form,
+                fechaRealDespacho:
+                  e.target.value,
+              })
+            }
+            className="w-full rounded-xl border border-neutral-200 px-3 py-2"
+          />
+        </Field>
+
+        <Field label="Transporte">
+          <input
+            value={form.transporte}
+            onChange={(e) =>
+              setForm({
+                ...form,
+                transporte:
+                  e.target.value,
+              })
+            }
+            placeholder="Ej: Propio / Envía / Servientrega"
+            className="w-full rounded-xl border border-neutral-200 px-3 py-2"
+          />
+        </Field>
+
+        <Field label="Guía">
+          <input
+            value={form.guia}
+            onChange={(e) =>
+              setForm({
+                ...form,
+                guia: e.target.value,
+              })
+            }
+            placeholder="Ej: 123456"
+            className="w-full rounded-xl border border-neutral-200 px-3 py-2"
+          />
+        </Field>
+
+        <Field label="Factura">
+          <input
+            value={form.factura}
+            onChange={(e) =>
+              setForm({
+                ...form,
+                factura:
+                  e.target.value,
+              })
+            }
+            placeholder="Ej: FV-001"
+            className="w-full rounded-xl border border-neutral-200 px-3 py-2"
+          />
+        </Field>
+
+        <Field label="Remisión">
+          <input
+            value={form.remision}
+            onChange={(e) =>
+              setForm({
+                ...form,
+                remision:
+                  e.target.value,
+              })
+            }
+            placeholder="Ej: RM-001"
+            className="w-full rounded-xl border border-neutral-200 px-3 py-2"
+          />
+        </Field>
+
+        <div className="md:col-span-2">
+          <Field label="Observaciones">
+            <textarea
+              value={
+                form.observaciones
+              }
+              onChange={(e) =>
+                setForm({
+                  ...form,
+                  observaciones:
+                    e.target.value,
+                })
+              }
+              placeholder="Observaciones del despacho..."
+              className="min-h-24 w-full rounded-xl border border-neutral-200 px-3 py-2"
+            />
+          </Field>
+        </div>
+      </div>
+
+      <div className="mt-5 flex justify-end gap-3">
+        <button
+          type="button"
+          onClick={() => {
+            setSelected(null);
+            setSaldoItems([]);
+            setCantidadesParciales(
+              {}
+            );
+            setSaldoError("");
+          }}
+          disabled={saving}
+          className="rounded-xl border border-neutral-200 bg-white px-4 py-2 text-sm font-semibold hover:bg-neutral-50 disabled:opacity-60"
+        >
+          Cancelar
+        </button>
+
+        <button
+          type="button"
+          onClick={
+            despacharSeleccionado
+          }
+          disabled={
+            saving ||
+            loadingSaldo ||
+            !!saldoError
+          }
+          className={
+            modoDespacho ===
+            "parcial"
+              ? "rounded-xl bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700 disabled:opacity-60"
+              : "rounded-xl bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-700 disabled:opacity-60"
+          }
+        >
+          {saving
+            ? "Guardando..."
+            : modoDespacho ===
+                "parcial"
+              ? "Confirmar despacho parcial"
+              : "Confirmar despacho completo"}
+        </button>
+      </div>
+    </div>
+  </div>
+)}
     </section>
   );
 }
