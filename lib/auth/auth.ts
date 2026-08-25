@@ -23,7 +23,6 @@ const getRoleFromEmail = (email: string): UserRole => {
     "gerencialogistica@inplastgr.com": "comercial",
     "almacenes@inplastgr.com": "comercial",
     "sandraisabelalfonso@inplastgr.com": "comercial",
-    "asistextrusionysoplado@inplastgr.com": "planeacion",
     "produccionextrusion@inplastgr.com": "produccion",
     "soplado@inplastgr.com": "logistica",
     "almacenherrajes@inplastgr.com": "logistica",
@@ -31,6 +30,7 @@ const getRoleFromEmail = (email: string): UserRole => {
 
     // admin total
     "daniel.alfonso@inplastgr.com": "admin",
+    "asistextrusionysoplado@inplastgr.com": "admin",
   };
 
   return map[email.toLowerCase()] ?? null;
