@@ -35,6 +35,12 @@ const TAB_META: Record<
     href: "/produccion/entregas-almacen",
     badge: "Almacén",
   },
+    "control-producto-proceso": {
+    title: "Control Producto en Proceso",
+    desc: "Inventario por OPE, entregas de producción, consumos, transformaciones y remanentes.",
+    href: "/produccion/control-producto-proceso",
+    badge: "Proceso",
+  },
   "cola-inteligente": {
   title: "Centro de Prioridades de Planta",
   desc: "Prioridad automática para planta según fecha requerida, avance del pedido y urgencia.",
@@ -49,6 +55,7 @@ const ALL_TABS: ProduccionTabKey[] = [
   "reporte-maquinas",
   "reporte-empaque",
   "entregas-almacen",
+  "control-producto-proceso",
 ];
 
 export default function ProduccionHomePage() {

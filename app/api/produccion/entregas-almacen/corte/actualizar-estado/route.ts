@@ -1,35 +1,54 @@
-//app/api/produccion/entregas-almacen/corte/actualizar-estado/route.ts
 import { NextResponse } from "next/server";
-import { getSheetsClient, getBasePrincipalRange } from "@/lib/google/googleSheets";
-import { env } from "@/lib/config/env";
 
-function getHeaders(values: any[][]) {
-  return (values?.[0] ?? []).map((h) => String(h ?? "").trim());
-}
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
-export async function POST(req: Request) {
-  try {
-    const { rowIndex } = await req.json();
-    if (!rowIndex) return NextResponse.json({ error: "Falta rowIndex" }, { status: 400 });
+/**
+ * =========================================================
+ * ENDPOINT BLOQUEADO
+ * =========================================================
+ *
+ * Antes este endpoint permitía cambiar manualmente:
+ *
+ * SolicitudesCorte.estadoitem
+ * Generada → Empacado
+ *
+ * Esa operación ya NO está permitida.
+ *
+ * Desde la implementación de Control Producto en Proceso,
+ * el estado Empacado solamente puede ser asignado
+ * automáticamente por:
+ *
+ * /api/produccion/control-producto-proceso/transformacion
+ *
+ * cuando la cantidad pendiente del consecutivo llega a 0.
+ *
+ * Se conserva esta ruta temporalmente para bloquear
+ * explícitamente cualquier interfaz, código antiguo o
+ * llamada HTTP que todavía intente utilizarla.
+ */
 
-    const headerValues = await getBasePrincipalRange("SolicitudesCorte!1:1");
-    const headers = getHeaders(headerValues);
-    const idxEstado = headers.indexOf("estadoitem");
-    if (idxEstado < 0) return NextResponse.json({ error: "No existe columna estadoitem" }, { status: 500 });
+export async function POST() {
+  return NextResponse.json(
+    {
+      ok: false,
 
-    const colLetter = String.fromCharCode("A".charCodeAt(0) + idxEstado);
+      error:
+        "El estado Empacado de una orden de corte ya no puede asignarse manualmente.",
 
-    const sheets = await getSheetsClient();
-    await sheets.spreadsheets.values.update({
-      spreadsheetId: env.SHEET_BASE_PRINCIPAL_ID,
-      range: `SolicitudesCorte!${colLetter}${rowIndex}`,
-      valueInputOption: "USER_ENTERED",
-      requestBody: { values: [["Empacado"]] },
-    });
+      message:
+        "Registra el consumo y la transformación desde Control Producto en Proceso. PEX marcará automáticamente el ítem como Empacado cuando la cantidad pendiente llegue a 0.",
 
-    return NextResponse.json({ ok: true }, { status: 200 });
-  } catch (e) {
-    console.error("[POST corte actualizar estado]", e);
-    return NextResponse.json({ error: "Error interno" }, { status: 500 });
-  }
+      code:
+        "CORTE_EMPACADO_MANUAL_BLOQUEADO",
+    },
+    {
+      status: 403,
+
+      headers: {
+        "Cache-Control":
+          "no-store, no-cache, max-age=0, must-revalidate",
+      },
+    }
+  );
 }

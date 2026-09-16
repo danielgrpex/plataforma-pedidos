@@ -1,29 +1,48 @@
-// lib/auth/permissions.ts
 import type { Role } from "./roles";
 
-/**
- * ✅ Esto ya lo tenías: permisos por módulo (rutas principales)
- * NO se toca, solo se deja igual.
- */
+/* =========================================================
+   PERMISOS POR MÓDULO
+   ========================================================= */
+
 export const MODULE_PERMISSIONS: Record<string, Role[]> = {
-  comercial: ["comercial", "planeacion", "logistica", "admin"],
-  planeacion: ["planeacion", "admin"],
-  produccion: ["produccion", "admin"],
-  abastecimientologistica: ["comercial", "logistica", "admin"], // usa el nombre real de tu ruta
+  comercial: [
+    "comercial",
+    "planeacion",
+    "logistica",
+    "admin",
+  ],
+
+  planeacion: [
+    "planeacion",
+    "admin",
+  ],
+
+  produccion: [
+    "produccion",
+    "admin",
+  ],
+
+  abastecimientologistica: [
+    "comercial",
+    "logistica",
+    "admin",
+  ],
 };
 
-/**
- * ✅ NUEVO: permisos por pestaña dentro de Producción
- * - Esto NO interfiere con MODULE_PERMISSIONS
- * - Te permite que dentro de /produccion cada correo vea tabs distintas
- */
+/* =========================================================
+   PRODUCCIÓN
+   ========================================================= */
 
+/**
+ * Permisos por pestaña dentro de Producción
+ */
 export type ProduccionTabKey =
   | "cola-inteligente"
   | "pdfs"
   | "reporte-maquinas"
   | "reporte-empaque"
-  | "entregas-almacen";
+  | "entregas-almacen"
+  | "control-producto-proceso";
 
 type ProduccionScope =
   | "coordinador_planta"
@@ -31,18 +50,45 @@ type ProduccionScope =
   | "operario"
   | "almacen";
 
+/* =========================================================
+   HELPERS
+   ========================================================= */
+
 /** Normaliza email */
-function normEmail(email?: string | null) {
-  return String(email || "").trim().toLowerCase();
+function normEmail(
+  email?: string | null
+) {
+  return String(email || "")
+    .trim()
+    .toLowerCase();
 }
 
+/** Normaliza rol */
+function normRole(
+  role?: string | null
+) {
+  return String(role || "")
+    .trim()
+    .toLowerCase();
+}
+
+/* =========================================================
+   PRODUCCIÓN - USUARIOS / SCOPES
+   ========================================================= */
+
 /**
- * ✅ AJUSTA AQUÍ los correos reales.
- * Puedes poner todos los que necesites.
+ * Correos reales por tipo de usuario
  */
-const PRODUCCION_SCOPE_BY_EMAIL: Record<string, ProduccionScope> = {
-  "daniel.alfonso@inplastgr.com": "coordinador_planta",
-  "produccionextrusion@inplastgr.com": "coordinador_planta",
+const PRODUCCION_SCOPE_BY_EMAIL: Record<
+  string,
+  ProduccionScope
+> = {
+  "daniel.alfonso@inplastgr.com":
+    "coordinador_planta",
+
+  "produccionextrusion@inplastgr.com":
+    "coordinador_planta",
+
   // Supervisores
   // "supervisor1@inplastgr.com": "supervisor",
 
@@ -54,51 +100,239 @@ const PRODUCCION_SCOPE_BY_EMAIL: Record<string, ProduccionScope> = {
 };
 
 /**
- * Tabs permitidas por tipo de usuario (scope).
- * Esto es lo que hace que sea escalable.
+ * Tabs permitidas por tipo de usuario
  */
-const PRODUCCION_TABS_BY_SCOPE: Record<ProduccionScope, ProduccionTabKey[]> = {
-  coordinador_planta: ["cola-inteligente","pdfs", "reporte-maquinas", "reporte-empaque", "entregas-almacen"],
-  supervisor: ["pdfs", "reporte-maquinas", "reporte-empaque"],
-  operario: ["reporte-maquinas", "reporte-empaque"],
-  almacen: ["entregas-almacen"],
+const PRODUCCION_TABS_BY_SCOPE: Record<
+  ProduccionScope,
+  ProduccionTabKey[]
+> = {
+  coordinador_planta: [
+    "cola-inteligente",
+    "pdfs",
+    "reporte-maquinas",
+    "reporte-empaque",
+    "entregas-almacen",
+    "control-producto-proceso",
+  ],
+
+  supervisor: [
+    "pdfs",
+    "reporte-maquinas",
+    "reporte-empaque",
+    "control-producto-proceso",
+  ],
+
+  operario: [
+    "reporte-maquinas",
+    "reporte-empaque",
+  ],
+
+  almacen: [
+    "entregas-almacen",
+  ],
 };
 
 /**
- * Obtiene "scope" según email.
- * - Si es admin o produccion y no está en el mapa, puedes decidir fallback.
+ * Obtiene scope según email
  */
-export function getProduccionScopeByEmail(email?: string | null): ProduccionScope | null {
-  const e = normEmail(email);
-  if (!e) return null;
-  return PRODUCCION_SCOPE_BY_EMAIL[e] || null;
+export function getProduccionScopeByEmail(
+  email?: string | null
+): ProduccionScope | null {
+  const e =
+    normEmail(email);
+
+  if (!e) {
+    return null;
+  }
+
+  return (
+    PRODUCCION_SCOPE_BY_EMAIL[e] ||
+    null
+  );
 }
 
 /**
- * Devuelve tabs permitidas para este email.
- * Si el usuario NO está en el mapa, por defecto:
- * - Si quieres que "produccion" vea algo sin registrar email, pon fallback aquí.
+ * Devuelve tabs permitidas
+ * para este email
  */
-export function allowedProduccionTabs(email?: string | null): ProduccionTabKey[] {
-  const scope = getProduccionScopeByEmail(email);
-  if (!scope) return [];
-  return PRODUCCION_TABS_BY_SCOPE[scope] || [];
-}
+export function allowedProduccionTabs(
+  email?: string | null
+): ProduccionTabKey[] {
+  const scope =
+    getProduccionScopeByEmail(
+      email
+    );
 
-/** Valida si puede ver una tab específica */
-export function canAccessProduccionTab(email: string | null | undefined, tab: ProduccionTabKey) {
-  return allowedProduccionTabs(email).includes(tab);
-}
-
-export function allowedProduccionTabsForUser(params: {
-  email?: string | null;
-  role?: string | null;
-}): ProduccionTabKey[] {
-  const role = String(params.role || "").trim().toLowerCase();
-  if (role === "admin") {
-    return ["cola-inteligente","pdfs", "reporte-maquinas", "reporte-empaque", "entregas-almacen"];
+  if (!scope) {
+    return [];
   }
 
-  // si no es admin, se controla por email/scopes
-  return allowedProduccionTabs(params.email);
+  return (
+    PRODUCCION_TABS_BY_SCOPE[
+      scope
+    ] || []
+  );
+}
+
+/**
+ * Valida si puede ver
+ * una tab específica
+ */
+export function canAccessProduccionTab(
+  email:
+    | string
+    | null
+    | undefined,
+  tab: ProduccionTabKey
+) {
+  return allowedProduccionTabs(
+    email
+  ).includes(tab);
+}
+
+/**
+ * Permisos teniendo en cuenta
+ * email + rol
+ */
+export function allowedProduccionTabsForUser(
+  params: {
+    email?: string | null;
+    role?: string | null;
+  }
+): ProduccionTabKey[] {
+  const role =
+    normRole(params.role);
+
+  if (role === "admin") {
+    return [
+      "cola-inteligente",
+      "pdfs",
+      "reporte-maquinas",
+      "reporte-empaque",
+      "entregas-almacen",
+      "control-producto-proceso",
+    ];
+  }
+
+  return allowedProduccionTabs(
+    params.email
+  );
+}
+
+/* =========================================================
+   ABASTECIMIENTO Y LOGÍSTICA
+   ========================================================= */
+
+/**
+ * Pestañas disponibles dentro del módulo
+ * Abastecimiento y Logística.
+ */
+export type AbastecimientoLogisticaTabKey =
+  | "turneroDespachos"
+  | "despachosItems"
+  | "itemsListos"
+  | "confirmarEntrega"
+  | "proveedores"
+  | "inventarioProductoProceso";
+
+/**
+ * Pestañas tradicionales del módulo.
+ *
+ * Las conservamos separadas porque actualmente
+ * Comercial también puede entrar al módulo.
+ */
+const ABASTECIMIENTO_TABS_BASE: AbastecimientoLogisticaTabKey[] =
+  [
+    "turneroDespachos",
+    "despachosItems",
+    "itemsListos",
+    "confirmarEntrega",
+    "proveedores",
+  ];
+
+/**
+ * Pestañas completas para Logística.
+ */
+const ABASTECIMIENTO_TABS_LOGISTICA: AbastecimientoLogisticaTabKey[] =
+  [
+    ...ABASTECIMIENTO_TABS_BASE,
+
+    /*
+     * Inventario P.P.:
+     *
+     * Logística podrá:
+     * - consultar inventario
+     * - realizar conteos
+     * - conciliar diferencias
+     *
+     * pero NO tendrá acceso a las operaciones
+     * internas del módulo Producción.
+     */
+    "inventarioProductoProceso",
+  ];
+
+/**
+ * Devuelve las pestañas permitidas
+ * dentro de Abastecimiento y Logística.
+ */
+export function allowedAbastecimientoLogisticaTabsForUser(
+  params: {
+    email?: string | null;
+    role?: string | null;
+  }
+): AbastecimientoLogisticaTabKey[] {
+  const role =
+    normRole(params.role);
+
+  /*
+   * Administrador:
+   * acceso completo.
+   */
+  if (role === "admin") {
+    return [
+      ...ABASTECIMIENTO_TABS_LOGISTICA,
+    ];
+  }
+
+  /*
+   * Logística:
+   * acceso completo al módulo,
+   * incluyendo Inventario P.P.
+   */
+  if (role === "logistica") {
+    return [
+      ...ABASTECIMIENTO_TABS_LOGISTICA,
+    ];
+  }
+
+  /*
+   * Comercial mantiene exactamente
+   * las funciones que ya tenía.
+   *
+   * No podrá acceder al control
+   * de Inventario P.P.
+   */
+  if (role === "comercial") {
+    return [
+      ...ABASTECIMIENTO_TABS_BASE,
+    ];
+  }
+
+  return [];
+}
+
+/**
+ * Valida una pestaña específica
+ * de Abastecimiento y Logística.
+ */
+export function canAccessAbastecimientoLogisticaTab(
+  params: {
+    email?: string | null;
+    role?: string | null;
+  },
+  tab: AbastecimientoLogisticaTabKey
+) {
+  return allowedAbastecimientoLogisticaTabsForUser(
+    params
+  ).includes(tab);
 }
