@@ -3,6 +3,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
+/* =========================================================
+   TIPOS
+   ========================================================= */
+
 type ProdItem = {
   rowIndex: number;
   OPE: string;
@@ -12,6 +16,10 @@ type ProdItem = {
   estado: string;
 };
 
+/* =========================================================
+   HELPERS
+   ========================================================= */
+
 async function safeJsonFetch<T>(
   url: string
 ): Promise<T | null> {
@@ -20,13 +28,27 @@ async function safeJsonFetch<T>(
       cache: "no-store",
     });
 
-    if (!res.ok) return null;
+    if (!res.ok) {
+      return null;
+    }
 
     return (await res.json()) as T;
   } catch {
     return null;
   }
 }
+
+function norm(value: unknown) {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
+/* =========================================================
+   COMPONENTE
+   ========================================================= */
 
 export default function ActualizarEstadoPage() {
   const router = useRouter();
@@ -42,45 +64,72 @@ export default function ActualizarEstadoPage() {
     null
   );
 
-  // =========================================================
-  // SELECCIÓN PRODUCCIÓN
-  // =========================================================
+  /* =========================================================
+     SELECCIÓN PRODUCCIÓN
+     ========================================================= */
 
   const [ope, setOpe] = useState("");
 
   const [prodItemRow, setProdItemRow] =
     useState<number | "">("");
 
-  const [nuevoEstadoProd, setNuevoEstadoProd] =
-    useState<"Producido" | "Empacado">(
-      "Producido"
-    );
+  /*
+   * Desde Máquinas esta pantalla solo permite:
+   *
+   * Generada → Producido
+   *
+   * Empacado pertenece al flujo de Empaque.
+   */
+  const nuevoEstadoProd = "Producido";
 
-  // =========================================================
-  // LISTADOS
-  // =========================================================
+  /* =========================================================
+     SOLO ÍTEMS GENERADA
+     ========================================================= */
+
+  const prodGenerada = useMemo(
+    () =>
+      prod.filter(
+        (item) =>
+          norm(item.estado) === "generada"
+      ),
+    [prod]
+  );
+
+  /* =========================================================
+     LISTADO DE OPE
+     ========================================================= */
 
   const opes = useMemo(
     () =>
       Array.from(
         new Set(
-          prod.map((x) => x.OPE)
+          prodGenerada.map(
+            (item) => item.OPE
+          )
         )
       ).filter(Boolean),
-    [prod]
+    [prodGenerada]
   );
+
+  /* =========================================================
+     ÍTEMS DE LA OPE SELECCIONADA
+     ========================================================= */
 
   const prodItemsOpe = useMemo(
     () =>
-      prod.filter(
-        (x) => x.OPE === ope
+      prodGenerada.filter(
+        (item) =>
+          item.OPE === ope
       ),
-    [prod, ope]
+    [
+      prodGenerada,
+      ope,
+    ]
   );
 
-  // =========================================================
-  // CARGA
-  // =========================================================
+  /* =========================================================
+     CARGAR PRODUCCIÓN
+     ========================================================= */
 
   async function cargarProduccion() {
     setLoading(true);
@@ -90,10 +139,25 @@ export default function ActualizarEstadoPage() {
         "/api/produccion/entregas-almacen/produccion/en-cola"
       );
 
-    setProd(p ?? []);
+    /*
+     * Guardamos respuesta completa.
+     *
+     * La protección visual definitiva está
+     * en prodGenerada, que solo deja pasar
+     * estado Generada.
+     */
+    setProd(
+      Array.isArray(p)
+        ? p
+        : []
+    );
 
     setLoading(false);
   }
+
+  /* =========================================================
+     CARGA INICIAL
+     ========================================================= */
 
   useEffect(() => {
     let mounted = true;
@@ -104,9 +168,16 @@ export default function ActualizarEstadoPage() {
           "/api/produccion/entregas-almacen/produccion/en-cola"
         );
 
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
 
-      setProd(p ?? []);
+      setProd(
+        Array.isArray(p)
+          ? p
+          : []
+      );
+
       setLoading(false);
     };
 
@@ -117,68 +188,136 @@ export default function ActualizarEstadoPage() {
     };
   }, []);
 
-  // =========================================================
-  // ACTUALIZAR OPE
-  // =========================================================
+  /* =========================================================
+     LIMPIAR OPE SI YA NO TIENE ÍTEMS GENERADA
+     ========================================================= */
 
-  const actualizarProd = async () => {
-    setMsg(null);
-    setErr(null);
-
-    if (!prodItemRow) {
-      return setErr(
-        "Selecciona un item de producción."
-      );
+  useEffect(() => {
+    if (!ope) {
+      return;
     }
 
-    try {
-      const res = await fetch(
-        "/api/produccion/entregas-almacen/produccion/actualizar-estado",
-        {
-          method: "POST",
+    const sigueDisponible =
+      opes.includes(ope);
 
-          headers: {
-            "Content-Type":
-              "application/json",
-          },
+    if (!sigueDisponible) {
+      setOpe("");
+      setProdItemRow("");
+    }
+  }, [
+    opes,
+    ope,
+  ]);
 
-          body: JSON.stringify({
-            rowIndex:
-              prodItemRow,
+  /* =========================================================
+     ACTUALIZAR OPE
+     ========================================================= */
 
-            nuevoEstado:
-              nuevoEstadoProd,
-          }),
-        }
-      );
+  const actualizarProd =
+    async () => {
+      setMsg(null);
+      setErr(null);
 
-      const j =
-        await res.json();
-
-      if (!res.ok) {
+      if (!prodItemRow) {
         return setErr(
-          j?.error ??
-            "No se pudo actualizar."
+          "Selecciona un ítem de producción."
         );
       }
 
-      setMsg(
-        "✅ Estado de producción actualizado."
-      );
+      /*
+       * Protección adicional del cliente.
+       *
+       * Verificamos que la fila todavía corresponda
+       * a un ítem Generada dentro de los datos
+       * actualmente cargados.
+       */
+      const itemSeleccionado =
+        prodGenerada.find(
+          (item) =>
+            item.rowIndex ===
+            prodItemRow
+        );
 
-      await cargarProduccion();
+      if (!itemSeleccionado) {
+        setErr(
+          "El ítem seleccionado ya no se encuentra en estado Generada. Actualiza la página e intenta nuevamente."
+        );
 
-      setProdItemRow("");
-    } catch {
-      setErr(
-        "No fue posible actualizar el estado."
-      );
-    }
-  };
+        await cargarProduccion();
 
-  // =========================================================
-  // RENDER
-  // =========================================================
+        setOpe("");
+        setProdItemRow("");
+
+        return;
+      }
+
+      try {
+        const res =
+          await fetch(
+            "/api/produccion/entregas-almacen/produccion/actualizar-estado",
+            {
+              method: "POST",
+
+              headers: {
+                "Content-Type":
+                  "application/json",
+              },
+
+              body: JSON.stringify({
+                rowIndex:
+                  prodItemRow,
+
+                /*
+                 * No sale de un selector.
+                 * Siempre será Producido.
+                 */
+                nuevoEstado:
+                  nuevoEstadoProd,
+              }),
+            }
+          );
+
+        const j =
+          await res.json();
+
+        if (!res.ok) {
+          return setErr(
+            j?.error ??
+              "No se pudo actualizar."
+          );
+        }
+
+        setMsg(
+          "✅ Ítem actualizado de Generada a Producido."
+        );
+
+        /*
+         * Recargamos.
+         *
+         * Como ahora el ítem es Producido,
+         * prodGenerada dejará de mostrarlo.
+         */
+        await cargarProduccion();
+
+        setProdItemRow("");
+
+        /*
+         * Dejamos la OPE seleccionada solamente
+         * si todavía tiene otros ítems Generada.
+         *
+         * El useEffect también se encargará
+         * de limpiarla si ya no existe.
+         */
+      } catch {
+        setErr(
+          "No fue posible actualizar el estado."
+        );
+      }
+    };
+
+  /* =========================================================
+     RENDER
+     ========================================================= */
 
   return (
     <div className="min-h-screen bg-neutral-50">
@@ -231,22 +370,30 @@ export default function ActualizarEstadoPage() {
           )}
 
           {/* =================================================
-              INFORMACIÓN SOBRE CORTE / EMPAQUE
+              INFORMACIÓN SOBRE FLUJO
              ================================================= */}
 
           <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4">
             <div className="text-sm font-semibold text-emerald-800">
-              Corte y empaque se gestionan automáticamente
+              Estados controlados por cada proceso
             </div>
 
             <p className="mt-1 text-sm text-emerald-700">
-              Los ítems de OTE pasan de{" "}
-              <b>Generada → Empacado</b>{" "}
-              automáticamente cuando Control Producto en Proceso confirma que la cantidad pendiente llegó a 0.
+              Desde Máquinas únicamente se permite
+              actualizar un ítem de{" "}
+              <b>Generada → Producido</b>.
             </p>
 
             <p className="mt-2 text-xs text-emerald-700">
-              El estado Empacado ya no puede asignarse manualmente a una orden de corte.
+              El estado <b>Empacado</b> pertenece al
+              proceso de Empaque y no puede asignarse
+              desde esta pantalla.
+            </p>
+
+            <p className="mt-1 text-xs text-emerald-700">
+              Los ítems que ya estén en estado{" "}
+              <b>Producido</b> dejarán de aparecer
+              automáticamente en este listado.
             </p>
           </div>
 
@@ -260,11 +407,14 @@ export default function ActualizarEstadoPage() {
             </h2>
 
             <p className="mt-1 text-xs text-neutral-600">
-              Selecciona un ítem de producción en cola y actualiza su estado.
+              Se muestran únicamente los ítems que se
+              encuentran actualmente en estado Generada.
             </p>
 
             <div className="mt-5 space-y-4">
-              {/* OPE */}
+              {/* =============================================
+                  OPE
+                 ============================================= */}
 
               <div>
                 <label className="mb-1 block text-sm font-medium">
@@ -279,26 +429,40 @@ export default function ActualizarEstadoPage() {
                     );
 
                     setProdItemRow("");
+                    setMsg(null);
+                    setErr(null);
                   }}
                   className={inputCls}
-                  disabled={loading}
+                  disabled={
+                    loading ||
+                    opes.length === 0
+                  }
                 >
                   <option value="">
-                    Selecciona…
+                    {loading
+                      ? "Cargando..."
+                      : opes.length ===
+                          0
+                        ? "No hay OPE en estado Generada"
+                        : "Selecciona…"}
                   </option>
 
-                  {opes.map((x) => (
-                    <option
-                      key={x}
-                      value={x}
-                    >
-                      {x}
-                    </option>
-                  ))}
+                  {opes.map(
+                    (x) => (
+                      <option
+                        key={x}
+                        value={x}
+                      >
+                        {x}
+                      </option>
+                    )
+                  )}
                 </select>
               </div>
 
-              {/* ITEM */}
+              {/* =============================================
+                  ITEM
+                 ============================================= */}
 
               <div>
                 <label className="mb-1 block text-sm font-medium">
@@ -325,7 +489,12 @@ export default function ActualizarEstadoPage() {
                   }
                 >
                   <option value="">
-                    Selecciona…
+                    {!ope
+                      ? "Selecciona primero una OPE"
+                      : prodItemsOpe.length ===
+                          0
+                        ? "No hay ítems Generada"
+                        : "Selecciona…"}
                   </option>
 
                   {prodItemsOpe.map(
@@ -351,7 +520,9 @@ export default function ActualizarEstadoPage() {
                 </select>
               </div>
 
-              {/* NUEVO ESTADO */}
+              {/* =============================================
+                  NUEVO ESTADO
+                 ============================================= */}
 
               <div>
                 <label className="mb-1 block text-sm font-medium">
@@ -359,34 +530,24 @@ export default function ActualizarEstadoPage() {
                 </label>
 
                 <select
-                  value={
-                    nuevoEstadoProd
-                  }
-                  onChange={(e) =>
-                    setNuevoEstadoProd(
-                      e.target
-                        .value as
-                        | "Producido"
-                        | "Empacado"
-                    )
-                  }
+                  value="Producido"
                   className={inputCls}
-                  disabled={
-                    !ope ||
-                    loading
-                  }
+                  disabled
                 >
                   <option value="Producido">
                     Producido
                   </option>
-
-                  <option value="Empacado">
-                    Empacado
-                  </option>
                 </select>
+
+                <p className="mt-1 text-xs text-neutral-500">
+                  Desde Máquinas únicamente se puede
+                  confirmar que la producción fue terminada.
+                </p>
               </div>
 
-              {/* BOTÓN */}
+              {/* =============================================
+                  BOTÓN
+                 ============================================= */}
 
               <button
                 type="button"
@@ -401,7 +562,7 @@ export default function ActualizarEstadoPage() {
               >
                 {loading
                   ? "Cargando..."
-                  : "Actualizar item"}
+                  : "Marcar como Producido"}
               </button>
             </div>
           </div>
@@ -410,6 +571,10 @@ export default function ActualizarEstadoPage() {
     </div>
   );
 }
+
+/* =========================================================
+   ESTILOS
+   ========================================================= */
 
 const inputCls =
   "w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-neutral-900/10 disabled:cursor-not-allowed disabled:bg-neutral-100 disabled:text-neutral-500";
