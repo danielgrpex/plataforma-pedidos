@@ -677,8 +677,8 @@ export async function POST(
        BUSCAR SOLICITUD DE CORTE
        ======================================================= */
 
-    const corteRowIndex =
-      corteRows.findIndex(
+    const corteRow =
+      corteRows.find(
         (row) =>
           toStr(
             pickCell(
@@ -690,9 +690,7 @@ export async function POST(
           solicitudCorteId
       );
 
-    if (
-      corteRowIndex < 0
-    ) {
+    if (!corteRow) {
       return NextResponse.json(
         {
           success: false,
@@ -703,20 +701,6 @@ export async function POST(
       );
     }
 
-    const corteRow =
-      corteRows[
-        corteRowIndex
-      ];
-
-    /*
-     * Número real de fila en Google Sheets:
-     *
-     * fila 1 = encabezados
-     * corteRows[0] = fila 2
-     */
-    const corteSheetRow =
-      corteRowIndex + 2;
-
     const estadoCorte =
       toStr(
         pickCell(
@@ -726,33 +710,6 @@ export async function POST(
         )
       );
 
-    /*
-     * Necesitamos saber en qué columna está estadoitem
-     * para poder actualizarla dinámicamente.
-     *
-     * Así no amarramos el código a una letra específica.
-     */
-    const colEstadoItem =
-      corteIdx.get(
-        normKey("estadoitem")
-      );
-
-    if (
-      colEstadoItem ===
-      undefined
-    ) {
-      throw new Error(
-        "No se encontró la columna estadoitem en SolicitudesCorte."
-      );
-    }
-
-    /*
-     * Solo permitimos transformación sobre ítems
-     * que todavía estén Generada.
-     *
-     * Cuando PEX los cierre en Empacado ya no podrán
-     * seguir consumiendo producto en proceso.
-     */
     if (
       norm(estadoCorte) !==
       "generada"
@@ -761,10 +718,7 @@ export async function POST(
         {
           success: false,
           message:
-            `La solicitud de corte ya no está en estado Generada. Estado actual: ${
-              estadoCorte ||
-              "sin estado"
-            }.`,
+            "La solicitud de corte ya no está en estado Generada.",
         },
         { status: 400 }
       );
@@ -867,13 +821,6 @@ export async function POST(
           )
         );
 
-      /*
-       * Excluimos la misma transformacionKey.
-       *
-       * Esto permite que, ante un reintento,
-       * no contemos dos veces la misma operación
-       * para calcular el pendiente previo.
-       */
       if (
         idSolicitud ===
           solicitudCorteId &&
@@ -912,17 +859,6 @@ export async function POST(
       );
     }
 
-    /*
-     * Pendiente que quedaría después de aplicar
-     * ESTA transformación.
-     */
-    const pendienteDespues =
-      Math.max(
-        0,
-        pendienteAntes -
-          cantidadObtenidaUnd
-      );
-
     /* =======================================================
        BUSCAR INVENTARIO ORIGEN
        ======================================================= */
@@ -958,6 +894,9 @@ export async function POST(
       inventarioRows[
         inventarioOrigenIndex
       ];
+
+    const inventarioOrigenSheetRow =
+      inventarioOrigenIndex + 2;
 
     const OPEOrigen =
       toStr(
@@ -1178,8 +1117,7 @@ export async function POST(
       new Set<string>();
 
     for (
-      const row of
-        movimientosRows
+      const row of movimientosRows
     ) {
       const relacion =
         toStr(
@@ -1205,8 +1143,7 @@ export async function POST(
       new Map<string, number>();
 
     for (
-      const row of
-        movimientosRows
+      const row of movimientosRows
     ) {
       const estado =
         norm(
@@ -1367,25 +1304,17 @@ export async function POST(
       {
         inventarioKey:
           inventarioOrigenKey,
-
-        OPE:
-          OPEOrigen,
-
+        OPE: OPEOrigen,
         producto:
           productoOrigen,
-
         referencia:
           referenciaOrigen,
-
         color:
           colorOrigen,
-
         ancho:
           anchoOrigen,
-
         acabado:
           acabadoOrigen,
-
         medidaMm:
           medidaOrigenMm,
       }
@@ -1418,25 +1347,17 @@ export async function POST(
         inventarioKey,
         {
           inventarioKey,
-
-          OPE:
-            OPEOrigen,
-
+          OPE: OPEOrigen,
           producto:
             productoRemanente,
-
           referencia:
             referenciaOrigen,
-
           color:
             colorOrigen,
-
           ancho:
             anchoOrigen,
-
           acabado:
             acabadoOrigen,
-
           medidaMm,
         }
       );
@@ -1455,15 +1376,11 @@ export async function POST(
       const observacionRemanente =
         [
           `Remanente de transformación`,
-
           `${cantidad} und × ${formatMedidaProducto(
             medidaMm
           )}`,
-
           `Origen ${OPEOrigen}`,
-
           `OTE ${OTE}`,
-
           `Consecutivo ${consecutivoCorte}`,
         ].join(" · ");
 
@@ -1557,7 +1474,6 @@ export async function POST(
           {
             sheetRow:
               index + 2,
-
             row,
           }
         );
@@ -1652,7 +1568,6 @@ export async function POST(
               [saldoFinal],
             ],
           },
-
           {
             range:
               `InventarioProceso!${toColLetter(
@@ -1665,7 +1580,6 @@ export async function POST(
               [timestamp],
             ],
           },
-
           {
             range:
               `InventarioProceso!${toColLetter(
@@ -1674,9 +1588,7 @@ export async function POST(
                 colEstado
               )}${existente.sheetRow}`,
 
-            values: [
-              [estado],
-            ],
+            values: [[estado]],
           }
         );
       } else {
@@ -1696,18 +1608,12 @@ export async function POST(
       }
 
       saldosFinales.push({
-        inventarioKey:
-          key,
-
-        OPE:
-          meta.OPE,
-
+        inventarioKey: key,
+        OPE: meta.OPE,
         producto:
           meta.producto,
-
         medida_mm:
           meta.medidaMm,
-
         saldoDisponible:
           saldoFinal,
       });
@@ -1817,59 +1723,73 @@ export async function POST(
     }
 
     /* =======================================================
-       4. CIERRE AUTOMÁTICO DE SOLICITUD DE CORTE
-
-       Cuando el total procesado llega a la cantidad
-       solicitada, PEX cambia automáticamente:
-
-       Generada → Empacado
-
-       De esta manera una persona ya no necesita marcar
-       manualmente el ítem como Empacado.
+       RESPUESTA
        ======================================================= */
 
-    let estadoItemFinal =
-      estadoCorte;
+    const pendienteDespues =
+      Math.max(
+        0,
+        pendienteAntes -
+          cantidadObtenidaUnd
+      );
 
-    let itemCerradoAutomaticamente =
-      false;
+    /*
+     * Sincronizar SolicitudesCorte con el avance real
+     * registrado en TransformacionesProceso.
+     *
+     * L = cantidadResultanteUnd acumulada
+     * M = estadoitem
+     * O = usuario última actualización
+     */
+    const cantidadResultanteAcumulada =
+      Math.min(
+        cantidadSolicitada,
+        obtenidoAnterior +
+          cantidadObtenidaUnd
+      );
 
-    if (
-      pendienteDespues <= 0 &&
-      norm(estadoCorte) ===
-        "generada"
-    ) {
-      const colEstadoLetter =
-        toColLetter(
-          colEstadoItem
-        );
+    const estadoItemFinal =
+      pendienteDespues <= 0
+        ? "Empacado"
+        : "Generada";
 
-      await sheets.spreadsheets.values.update({
+    const corteSheetRow =
+      corteRows.indexOf(
+        corteRow
+      ) + 2;
+
+    if (corteSheetRow >= 2) {
+      await sheets.spreadsheets.values.batchUpdate({
         spreadsheetId,
 
-        range:
-          `SolicitudesCorte!${colEstadoLetter}${corteSheetRow}`,
-
-        valueInputOption:
-          "USER_ENTERED",
-
         requestBody: {
-          values: [
-            ["Empacado"],
+          valueInputOption:
+            "USER_ENTERED",
+
+          data: [
+            {
+              range:
+                `SolicitudesCorte!L${corteSheetRow}:M${corteSheetRow}`,
+
+              values: [
+                [
+                  cantidadResultanteAcumulada,
+                  estadoItemFinal,
+                ],
+              ],
+            },
+            {
+              range:
+                `SolicitudesCorte!O${corteSheetRow}:O${corteSheetRow}`,
+
+              values: [
+                [usuario],
+              ],
+            },
           ],
         },
       });
-
-      estadoItemFinal =
-        "Empacado";
-
-      itemCerradoAutomaticamente =
-        true;
     }
-
-    /* =======================================================
-       RESPUESTA
-       ======================================================= */
 
     return NextResponse.json({
       success: true,
@@ -1921,17 +1841,10 @@ export async function POST(
 
       pendienteDespues,
 
-      /*
-       * NUEVO:
-       * permite que la interfaz sepa si esta operación
-       * cerró automáticamente el consecutivo.
-       */
-      estadoItemAnterior:
-        estadoCorte,
+      cantidadResultanteAcumulada,
 
-      estadoItemFinal,
-
-      itemCerradoAutomaticamente,
+      estadoitem:
+        estadoItemFinal,
 
       saldos:
         saldosFinales,

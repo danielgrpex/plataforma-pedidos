@@ -5,26 +5,13 @@ import { useEffect, useMemo, useState } from "react";
 import { useSession } from "next-auth/react";
 import { allowedProduccionTabsForUser } from "@/lib/auth/permissions";
 
-/* =========================================================
-   TIPOS
-   ========================================================= */
-
 type ItemCorte = {
   sheetRow: number;
   solicitudCorteId: string;
   pedidoKey: string;
   rowIndexPedido: string;
   productoSolicitado: string;
-
   cantidadSolicitadaUnd: number;
-  cantidadProcesadaUnd: number;
-  cantidadPendienteUnd: number;
-  operacionesRegistradas: number;
-
-  estadoProceso:
-    | "Pendiente"
-    | "Parcial"
-    | "Completo";
 
   inventarioOrigenId: string;
   productoOrigen: string;
@@ -43,36 +30,16 @@ type ItemCorte = {
 
 type GrupoOTE = {
   OTE: string;
-
   cantidadItems: number;
-
   totalSolicitadoUnd: number;
-  totalProcesadoUnd: number;
-  totalPendienteUnd: number;
-
-  itemsCompletos: number;
-  itemsParciales: number;
-  itemsPendientes: number;
-
   items: ItemCorte[];
 };
 
 type ApiResponse = {
   ok: boolean;
-
   totalOTE: number;
   totalItems: number;
-
-  totalSolicitadoUnd: number;
-  totalProcesadoUnd: number;
-  totalPendienteUnd: number;
-
-  totalItemsCompletos: number;
-  totalItemsParciales: number;
-  totalItemsPendientes: number;
-
   ordenes: GrupoOTE[];
-
   error?: string;
 };
 
@@ -122,6 +89,52 @@ type CompatiblesResponse = {
   error?: string;
 };
 
+type CriterioComponente = {
+  color: string;
+  ancho: string;
+  medida_mm: number;
+  acabado: string;
+};
+
+type ComponenteInventario = {
+  productoFinal: string;
+  componente: string;
+  factorPorUnidad: number;
+  criterioComponente: CriterioComponente;
+  cantidadFinalSolicitada: number;
+  necesarioTeorico: number;
+  totalDisponible: number;
+  cubreNecesidad: boolean;
+  cantidadLotes: number;
+  lotes: InventarioCompatible[];
+};
+
+type ComponentesResponse = {
+  ok: boolean;
+  solicitudCorteId?: string;
+  OTE?: string;
+  rowIndexPedido?: string;
+  productoSolicitado?: string;
+  cantidadSolicitadaUnd?: number;
+  productoObjetivo?: {
+    referencia: string;
+    color: string;
+    ancho: string;
+    medidaFinal_mm: number;
+    acabadoFinal: string;
+  };
+  tieneComposicion?: boolean;
+  totalComponentes?: number;
+  todosCubiertos?: boolean;
+  componentes?: ComponenteInventario[];
+  error?: string;
+};
+
+type ConsumosComponentes = Record<
+  string,
+  Record<string, string>
+>;
+
 type RemanenteForm = {
   id: string;
   cantidad: string;
@@ -159,10 +172,6 @@ type ResultadoTransformacion = {
   pendienteAntes?: number;
   pendienteDespues?: number;
 
-    estadoItemAnterior?: string;
-  estadoItemFinal?: string;
-  itemCerradoAutomaticamente?: boolean;
-
   saldos?: Array<{
     inventarioKey: string;
     OPE: string;
@@ -173,10 +182,6 @@ type ResultadoTransformacion = {
 
   message?: string;
 };
-
-/* =========================================================
-   HELPERS
-   ========================================================= */
 
 function formatMedida(mm: number) {
   if (!mm) return "-";
@@ -239,200 +244,125 @@ function crearTransformacionKey() {
     .slice(2, 10)}`;
 }
 
-/* =========================================================
-   COMPONENTE
-   ========================================================= */
-
 export default function ConsumoEmpaquePage() {
   const { data: session, status } = useSession();
 
-  const email =
-    (session?.user as any)?.email || "";
+  const email = (session?.user as any)?.email || "";
+  const role = (session?.user as any)?.role || "";
 
-  const role =
-    (session?.user as any)?.role || "";
+  const allowedTabs = allowedProduccionTabsForUser({
+    email,
+    role,
+  });
 
-  const allowedTabs =
-    allowedProduccionTabsForUser({
-      email,
-      role,
-    });
-
-  const canAccess =
-    allowedTabs.includes(
-      "control-producto-proceso"
-    );
+  const canAccess = allowedTabs.includes(
+    "control-producto-proceso"
+  );
 
   // =========================================================
   // OTE
   // =========================================================
 
-  const [data, setData] =
-    useState<ApiResponse | null>(
-      null
-    );
+  const [data, setData] = useState<ApiResponse | null>(
+    null
+  );
 
-  const [loading, setLoading] =
-    useState(true);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [search, setSearch] = useState("");
 
-  const [error, setError] =
-    useState("");
+  const [oteSeleccionada, setOteSeleccionada] =
+    useState<GrupoOTE | null>(null);
 
-  const [search, setSearch] =
-    useState("");
-
-  const [
-    oteSeleccionada,
-    setOteSeleccionada,
-  ] =
-    useState<GrupoOTE | null>(
-      null
-    );
-
-  const [
-    itemSeleccionado,
-    setItemSeleccionado,
-  ] =
-    useState<ItemCorte | null>(
-      null
-    );
+  const [itemSeleccionado, setItemSeleccionado] =
+    useState<ItemCorte | null>(null);
 
   // =========================================================
   // INVENTARIO COMPATIBLE
   // =========================================================
 
-  const [
-    compatibles,
-    setCompatibles,
-  ] =
-    useState<
-      InventarioCompatible[]
-    >([]);
+  const [compatibles, setCompatibles] = useState<
+    InventarioCompatible[]
+  >([]);
 
-  const [
-    loadingCompatibles,
-    setLoadingCompatibles,
-  ] =
+  const [loadingCompatibles, setLoadingCompatibles] =
     useState(false);
 
-  const [
-    errorCompatibles,
-    setErrorCompatibles,
-  ] =
+  const [errorCompatibles, setErrorCompatibles] =
     useState("");
 
-  const [
-    productoObjetivo,
-    setProductoObjetivo,
-  ] =
+  const [productoObjetivo, setProductoObjetivo] =
     useState<
       CompatiblesResponse["productoObjetivo"] | null
     >(null);
 
-  const [
-    origenSeleccionado,
-    setOrigenSeleccionado,
-  ] =
-    useState<InventarioCompatible | null>(
-      null
-    );
+  const [origenSeleccionado, setOrigenSeleccionado] =
+    useState<InventarioCompatible | null>(null);
+
+  // =========================================================
+  // PRODUCTOS COMPUESTOS
+  // =========================================================
+
+  const [modoCompuesto, setModoCompuesto] =
+    useState(false);
+
+  const [componentesInventario, setComponentesInventario] =
+    useState<ComponenteInventario[]>([]);
+
+  const [consumosComponentes, setConsumosComponentes] =
+    useState<ConsumosComponentes>({});
 
   // =========================================================
   // SUPERVISORES
   // =========================================================
 
-  const [
-    supervisores,
-    setSupervisores,
-  ] =
-    useState<string[]>([]);
+  const [supervisores, setSupervisores] = useState<
+    string[]
+  >([]);
 
-  const [
-    loadingSupervisores,
-    setLoadingSupervisores,
-  ] =
+  const [loadingSupervisores, setLoadingSupervisores] =
     useState(true);
 
   // =========================================================
   // TRANSFORMACIÓN
   // =========================================================
 
-  const [
-    cantidadOrigen,
-    setCantidadOrigen,
-  ] =
+  const [cantidadOrigen, setCantidadOrigen] =
     useState("");
 
-  const [
-    cantidadObtenida,
-    setCantidadObtenida,
-  ] =
+  const [cantidadObtenida, setCantidadObtenida] =
     useState("");
 
-  const [
-    hayRemanente,
-    setHayRemanente,
-  ] =
+  const [hayRemanente, setHayRemanente] =
     useState(false);
 
-  const [
-    remanentes,
-    setRemanentes,
-  ] =
-    useState<
-      RemanenteForm[]
-    >([]);
+  const [remanentes, setRemanentes] = useState<
+    RemanenteForm[]
+  >([]);
 
-  const [turno, setTurno] =
+  const [turno, setTurno] = useState("");
+  const [supervisor, setSupervisor] = useState("");
+  const [observacion, setObservacion] =
     useState("");
 
-  const [
-    supervisor,
-    setSupervisor,
-  ] =
-    useState("");
-
-  const [
-    observacion,
-    setObservacion,
-  ] =
-    useState("");
-
-  const [
-    validacionSolicitada,
-    setValidacionSolicitada,
-  ] =
+  const [validacionSolicitada, setValidacionSolicitada] =
     useState(false);
 
   // =========================================================
   // GUARDADO REAL
   // =========================================================
 
-  const [
-    transformacionKey,
-    setTransformacionKey,
-  ] =
+  const [transformacionKey, setTransformacionKey] =
     useState("");
 
-  const [
-    guardando,
-    setGuardando,
-  ] =
+  const [guardando, setGuardando] =
     useState(false);
 
-  const [
-    errorGuardar,
-    setErrorGuardar,
-  ] =
+  const [errorGuardar, setErrorGuardar] =
     useState("");
 
-  const [
-    resultadoGuardar,
-    setResultadoGuardar,
-  ] =
-    useState<ResultadoTransformacion | null>(
-      null
-    );
+  const [resultadoGuardar, setResultadoGuardar] =
+    useState<ResultadoTransformacion | null>(null);
 
   // =========================================================
   // CARGAR ÓRDENES
@@ -450,13 +380,9 @@ export default function ConsumoEmpaquePage() {
         }
       );
 
-      const json =
-        (await res.json()) as ApiResponse;
+      const json = await res.json();
 
-      if (
-        !res.ok ||
-        !json?.ok
-      ) {
+      if (!res.ok || !json?.ok) {
         throw new Error(
           json?.error ||
             "No fue posible consultar las órdenes de corte."
@@ -464,30 +390,6 @@ export default function ConsumoEmpaquePage() {
       }
 
       setData(json);
-
-      /*
-       * Si estamos dentro de una OTE,
-       * actualizamos también esa OTE con
-       * la información recién consultada.
-       *
-       * Esto evita que después de guardar
-       * siga apareciendo el avance anterior.
-       */
-      setOteSeleccionada(
-        (actual) => {
-          if (!actual) {
-            return null;
-          }
-
-          return (
-            json.ordenes.find(
-              (orden) =>
-                orden.OTE ===
-                actual.OTE
-            ) || actual
-          );
-        }
-      );
     } catch (e: any) {
       setError(
         e?.message ||
@@ -499,11 +401,7 @@ export default function ConsumoEmpaquePage() {
   }
 
   useEffect(() => {
-    if (
-      status === "loading"
-    ) {
-      return;
-    }
+    if (status === "loading") return;
 
     if (!canAccess) {
       setLoading(false);
@@ -511,33 +409,21 @@ export default function ConsumoEmpaquePage() {
     }
 
     cargarOrdenes();
-  }, [
-    status,
-    canAccess,
-  ]);
+  }, [status, canAccess]);
 
   // =========================================================
   // CARGAR SUPERVISORES
   // =========================================================
 
   useEffect(() => {
-    if (
-      status === "loading"
-    ) {
-      return;
-    }
-
-    if (!canAccess) {
-      return;
-    }
+    if (status === "loading") return;
+    if (!canAccess) return;
 
     let cancelled = false;
 
     async function cargarSupervisores() {
       try {
-        setLoadingSupervisores(
-          true
-        );
+        setLoadingSupervisores(true);
 
         const res = await fetch(
           "/api/produccion/control-producto-proceso/supervisores",
@@ -546,13 +432,9 @@ export default function ConsumoEmpaquePage() {
           }
         );
 
-        const json =
-          await res.json();
+        const json = await res.json();
 
-        if (
-          !res.ok ||
-          !json?.ok
-        ) {
+        if (!res.ok || !json?.ok) {
           throw new Error(
             json?.error ||
               "No fue posible consultar supervisores."
@@ -561,9 +443,7 @@ export default function ConsumoEmpaquePage() {
 
         if (!cancelled) {
           setSupervisores(
-            Array.isArray(
-              json.supervisores
-            )
+            Array.isArray(json.supervisores)
               ? json.supervisores
               : []
           );
@@ -575,15 +455,11 @@ export default function ConsumoEmpaquePage() {
         );
 
         if (!cancelled) {
-          setSupervisores(
-            []
-          );
+          setSupervisores([]);
         }
       } finally {
         if (!cancelled) {
-          setLoadingSupervisores(
-            false
-          );
+          setLoadingSupervisores(false);
         }
       }
     }
@@ -593,59 +469,43 @@ export default function ConsumoEmpaquePage() {
     return () => {
       cancelled = true;
     };
-  }, [
-    status,
-    canAccess,
-  ]);
+  }, [status, canAccess]);
 
   // =========================================================
   // FILTRO
   // =========================================================
 
-  const ordenesFiltradas =
-    useMemo(() => {
-      const ordenes =
-        data?.ordenes || [];
+  const ordenesFiltradas = useMemo(() => {
+    const ordenes = data?.ordenes || [];
 
-      const q = search
-        .trim()
-        .toLowerCase();
+    const q = search
+      .trim()
+      .toLowerCase();
 
-      if (!q) {
-        return ordenes;
+    if (!q) {
+      return ordenes;
+    }
+
+    return ordenes.filter((grupo) => {
+      if (
+        grupo.OTE.toLowerCase().includes(q)
+      ) {
+        return true;
       }
 
-      return ordenes.filter(
-        (grupo) => {
-          if (
-            grupo.OTE
-              .toLowerCase()
-              .includes(q)
-          ) {
-            return true;
-          }
-
-          return grupo.items.some(
-            (item) =>
-              [
-                item.rowIndexPedido,
-                item.productoSolicitado,
-                item.pedidoKey,
-              ].some(
-                (value) =>
-                  String(
-                    value || ""
-                  )
-                    .toLowerCase()
-                    .includes(q)
-              )
-          );
-        }
+      return grupo.items.some((item) =>
+        [
+          item.rowIndexPedido,
+          item.productoSolicitado,
+          item.pedidoKey,
+        ].some((value) =>
+          String(value || "")
+            .toLowerCase()
+            .includes(q)
+        )
       );
-    }, [
-      data,
-      search,
-    ]);
+    });
+  }, [data, search]);
 
   // =========================================================
   // LIMPIAR TRANSFORMACIÓN
@@ -662,15 +522,91 @@ export default function ConsumoEmpaquePage() {
     setSupervisor("");
     setObservacion("");
 
-    setValidacionSolicitada(
-      false
-    );
+    setValidacionSolicitada(false);
 
     setTransformacionKey("");
     setGuardando(false);
     setErrorGuardar("");
-    setResultadoGuardar(
-      null
+    setResultadoGuardar(null);
+  }
+
+  function limpiarModoCompuesto() {
+    setModoCompuesto(false);
+    setComponentesInventario([]);
+    setConsumosComponentes({});
+  }
+
+  function seleccionarLoteComponente(
+    componente: string,
+    inventarioKey: string
+  ) {
+    setConsumosComponentes((actual) => ({
+      ...actual,
+      [componente]: {
+        ...(actual[componente] || {}),
+        [inventarioKey]: "",
+      },
+    }));
+
+    setValidacionSolicitada(false);
+    setErrorGuardar("");
+  }
+
+  function quitarLoteComponente(
+    componente: string,
+    inventarioKey: string
+  ) {
+    setConsumosComponentes((actual) => {
+      const lotesComponente = {
+        ...(actual[componente] || {}),
+      };
+
+      delete lotesComponente[inventarioKey];
+
+      return {
+        ...actual,
+        [componente]: lotesComponente,
+      };
+    });
+
+    setValidacionSolicitada(false);
+    setErrorGuardar("");
+  }
+
+  function actualizarConsumoComponente(
+    componente: string,
+    inventarioKey: string,
+    value: string
+  ) {
+    if (
+      value !== "" &&
+      !/^\d*$/.test(value)
+    ) {
+      return;
+    }
+
+    setConsumosComponentes((actual) => ({
+      ...actual,
+      [componente]: {
+        ...(actual[componente] || {}),
+        [inventarioKey]: value,
+      },
+    }));
+
+    setValidacionSolicitada(false);
+    setErrorGuardar("");
+  }
+
+  function totalConsumidoComponente(
+    componente: string
+  ) {
+    const lotes =
+      consumosComponentes[componente] || {};
+
+    return Object.values(lotes).reduce(
+      (total, value) =>
+        total + parseDecimal(value),
+      0
     );
   }
 
@@ -678,27 +614,15 @@ export default function ConsumoEmpaquePage() {
   // SELECCIÓN OTE
   // =========================================================
 
-  function abrirOTE(
-    grupo: GrupoOTE
-  ) {
-    setOteSeleccionada(
-      grupo
-    );
-
-    setItemSeleccionado(
-      null
-    );
+  function abrirOTE(grupo: GrupoOTE) {
+    setOteSeleccionada(grupo);
+    setItemSeleccionado(null);
 
     setCompatibles([]);
-    setProductoObjetivo(
-      null
-    );
-
-    setOrigenSeleccionado(
-      null
-    );
-
+    setProductoObjetivo(null);
+    setOrigenSeleccionado(null);
     setErrorCompatibles("");
+    limpiarModoCompuesto();
 
     limpiarTransformacion();
 
@@ -709,24 +633,14 @@ export default function ConsumoEmpaquePage() {
   }
 
   function cerrarOTE() {
-    setOteSeleccionada(
-      null
-    );
-
-    setItemSeleccionado(
-      null
-    );
+    setOteSeleccionada(null);
+    setItemSeleccionado(null);
 
     setCompatibles([]);
-    setProductoObjetivo(
-      null
-    );
-
-    setOrigenSeleccionado(
-      null
-    );
-
+    setProductoObjetivo(null);
+    setOrigenSeleccionado(null);
     setErrorCompatibles("");
+    limpiarModoCompuesto();
 
     limpiarTransformacion();
   }
@@ -735,35 +649,14 @@ export default function ConsumoEmpaquePage() {
   // CONSULTAR INVENTARIO COMPATIBLE
   // =========================================================
 
-  async function seleccionarItem(
-    item: ItemCorte
-  ) {
-    /*
-     * Protección adicional:
-     * aunque alguien intentara llamar esta función
-     * directamente, un ítem completo no puede abrirse.
-     */
-    if (
-      item.cantidadPendienteUnd <=
-      0
-    ) {
-      return;
-    }
-
-    setItemSeleccionado(
-      item
-    );
+  async function seleccionarItem(item: ItemCorte) {
+    setItemSeleccionado(item);
 
     setCompatibles([]);
-    setProductoObjetivo(
-      null
-    );
-
-    setOrigenSeleccionado(
-      null
-    );
-
+    setProductoObjetivo(null);
+    setOrigenSeleccionado(null);
     setErrorCompatibles("");
+    limpiarModoCompuesto();
 
     limpiarTransformacion();
 
@@ -773,10 +666,78 @@ export default function ConsumoEmpaquePage() {
     });
 
     try {
-      setLoadingCompatibles(
-        true
+      setLoadingCompatibles(true);
+
+      /*
+       * Primero preguntamos si el producto final tiene
+       * composición configurada. Si la tiene, la pantalla
+       * cambia a modo de múltiples componentes y múltiples
+       * lotes por componente.
+       */
+      const resComponentes = await fetch(
+        `/api/produccion/control-producto-proceso/inventario-componentes?solicitudCorteId=${encodeURIComponent(
+          item.solicitudCorteId
+        )}`,
+        {
+          cache: "no-store",
+        }
       );
 
+      const jsonComponentes =
+        (await resComponentes.json()) as ComponentesResponse;
+
+      if (!resComponentes.ok || !jsonComponentes?.ok) {
+        throw new Error(
+          jsonComponentes?.error ||
+            "No fue posible consultar la composición del producto."
+        );
+      }
+
+      if (jsonComponentes.tieneComposicion) {
+        const componentes = Array.isArray(
+          jsonComponentes.componentes
+        )
+          ? jsonComponentes.componentes
+          : [];
+
+        setModoCompuesto(true);
+        setComponentesInventario(componentes);
+
+        const consumosIniciales: ConsumosComponentes = {};
+
+        componentes.forEach((componente) => {
+          /*
+           * Ningún lote se selecciona automáticamente.
+           * El operario debe indicar explícitamente qué lote
+           * está utilizando mediante "Usar este lote".
+           */
+          consumosIniciales[componente.componente] = {};
+        });
+
+        setConsumosComponentes(consumosIniciales);
+
+        if (jsonComponentes.productoObjetivo) {
+          setProductoObjetivo({
+            familia:
+              jsonComponentes.productoObjetivo.referencia,
+            color:
+              jsonComponentes.productoObjetivo.color,
+            ancho:
+              jsonComponentes.productoObjetivo.ancho,
+            medidaFinal_mm:
+              jsonComponentes.productoObjetivo.medidaFinal_mm,
+            acabadoFinal:
+              jsonComponentes.productoObjetivo.acabadoFinal,
+          });
+        }
+
+        return;
+      }
+
+      /*
+       * Producto simple: conservamos exactamente el flujo
+       * que ya funcionaba antes.
+       */
       const res = await fetch(
         `/api/produccion/control-producto-proceso/inventario-compatible?solicitudCorteId=${encodeURIComponent(
           item.solicitudCorteId
@@ -789,10 +750,7 @@ export default function ConsumoEmpaquePage() {
       const json =
         (await res.json()) as CompatiblesResponse;
 
-      if (
-        !res.ok ||
-        !json?.ok
-      ) {
+      if (!res.ok || !json?.ok) {
         throw new Error(
           json?.error ||
             "No fue posible consultar el inventario compatible."
@@ -800,16 +758,13 @@ export default function ConsumoEmpaquePage() {
       }
 
       setCompatibles(
-        Array.isArray(
-          json.compatibles
-        )
+        Array.isArray(json.compatibles)
           ? json.compatibles
           : []
       );
 
       setProductoObjetivo(
-        json.productoObjetivo ||
-          null
+        json.productoObjetivo || null
       );
     } catch (e: any) {
       setErrorCompatibles(
@@ -817,27 +772,18 @@ export default function ConsumoEmpaquePage() {
           "Ocurrió un error consultando el inventario compatible."
       );
     } finally {
-      setLoadingCompatibles(
-        false
-      );
+      setLoadingCompatibles(false);
     }
   }
 
   function cambiarItem() {
-    setItemSeleccionado(
-      null
-    );
+    setItemSeleccionado(null);
 
     setCompatibles([]);
-    setProductoObjetivo(
-      null
-    );
-
-    setOrigenSeleccionado(
-      null
-    );
-
+    setProductoObjetivo(null);
+    setOrigenSeleccionado(null);
     setErrorCompatibles("");
+    limpiarModoCompuesto();
 
     limpiarTransformacion();
   }
@@ -845,9 +791,7 @@ export default function ConsumoEmpaquePage() {
   function seleccionarOrigen(
     inventario: InventarioCompatible
   ) {
-    setOrigenSeleccionado(
-      inventario
-    );
+    setOrigenSeleccionado(inventario);
 
     limpiarTransformacion();
 
@@ -868,14 +812,9 @@ export default function ConsumoEmpaquePage() {
   function cambiarHayRemanente(
     value: boolean
   ) {
-    setHayRemanente(
-      value
-    );
+    setHayRemanente(value);
 
-    setValidacionSolicitada(
-      false
-    );
-
+    setValidacionSolicitada(false);
     setErrorGuardar("");
 
     if (value) {
@@ -888,35 +827,24 @@ export default function ConsumoEmpaquePage() {
   }
 
   function agregarRemanente() {
-    setRemanentes(
-      (actual) => [
-        ...actual,
-        crearRemanente(),
-      ]
-    );
+    setRemanentes((actual) => [
+      ...actual,
+      crearRemanente(),
+    ]);
 
-    setValidacionSolicitada(
-      false
-    );
-
+    setValidacionSolicitada(false);
     setErrorGuardar("");
   }
 
-  function quitarRemanente(
-    id: string
-  ) {
-    setRemanentes(
-      (actual) =>
-        actual.filter(
-          (remanente) =>
-            remanente.id !== id
-        )
+  function quitarRemanente(id: string) {
+    setRemanentes((actual) =>
+      actual.filter(
+        (remanente) =>
+          remanente.id !== id
+      )
     );
 
-    setValidacionSolicitada(
-      false
-    );
-
+    setValidacionSolicitada(false);
     setErrorGuardar("");
   }
 
@@ -929,32 +857,23 @@ export default function ConsumoEmpaquePage() {
   ) {
     if (
       valor !== "" &&
-      !/^\d*[.,]?\d*$/.test(
-        valor
-      )
+      !/^\d*[.,]?\d*$/.test(valor)
     ) {
       return;
     }
 
-    setRemanentes(
-      (actual) =>
-        actual.map(
-          (remanente) =>
-            remanente.id ===
-            id
-              ? {
-                  ...remanente,
-                  [campo]:
-                    valor,
-                }
-              : remanente
-        )
+    setRemanentes((actual) =>
+      actual.map((remanente) =>
+        remanente.id === id
+          ? {
+              ...remanente,
+              [campo]: valor,
+            }
+          : remanente
+      )
     );
 
-    setValidacionSolicitada(
-      false
-    );
-
+    setValidacionSolicitada(false);
     setErrorGuardar("");
   }
 
@@ -962,99 +881,90 @@ export default function ConsumoEmpaquePage() {
   // CÁLCULOS DE BALANCE
   // =========================================================
 
-  const calculos =
-    useMemo(() => {
-      const cantidadOrigenNum =
-        parseDecimal(
-          cantidadOrigen
-        );
+  const calculos = useMemo(() => {
+    const cantidadOrigenNum =
+      parseDecimal(cantidadOrigen);
 
-      const cantidadObtenidaNum =
-        parseDecimal(
-          cantidadObtenida
-        );
+    const cantidadObtenidaNum =
+      parseDecimal(cantidadObtenida);
 
-      const largoOrigenM =
-        origenSeleccionado
-          ? origenSeleccionado.medida_mm /
-            1000
-          : 0;
+    const largoOrigenM =
+      origenSeleccionado
+        ? origenSeleccionado.medida_mm /
+          1000
+        : 0;
 
-      const largoFinalM =
-        productoObjetivo
-          ? productoObjetivo.medidaFinal_mm /
-            1000
-          : 0;
+    const largoFinalM =
+      productoObjetivo
+        ? productoObjetivo.medidaFinal_mm /
+          1000
+        : 0;
 
-      const metrosOrigen =
-        cantidadOrigenNum *
-        largoOrigenM;
+    const metrosOrigen =
+      cantidadOrigenNum *
+      largoOrigenM;
 
-      const metrosProductoBueno =
-        cantidadObtenidaNum *
-        largoFinalM;
+    const metrosProductoBueno =
+      cantidadObtenidaNum *
+      largoFinalM;
 
-      const metrosRemanentes =
-        remanentes.reduce(
-          (
-            total,
-            remanente
-          ) => {
-            const cantidad =
-              parseDecimal(
-                remanente.cantidad
-              );
-
-            const medida =
-              parseDecimal(
-                remanente.medidaMetros
-              );
-
-            return (
-              total +
-              cantidad *
-                medida
+    const metrosRemanentes =
+      remanentes.reduce(
+        (total, remanente) => {
+          const cantidad =
+            parseDecimal(
+              remanente.cantidad
             );
-          },
-          0
-        );
 
-      const diferencia =
-        metrosOrigen -
-        metrosProductoBueno -
-        metrosRemanentes;
+          const medida =
+            parseDecimal(
+              remanente.medidaMetros
+            );
 
-      const rendimientoTeoricoPorTira =
-        largoOrigenM > 0 &&
-        largoFinalM > 0
-          ? Math.floor(
-              largoOrigenM /
-                largoFinalM
-            )
-          : 0;
+          return (
+            total +
+            cantidad * medida
+          );
+        },
+        0
+      );
 
-      return {
-        cantidadOrigenNum,
-        cantidadObtenidaNum,
+    const diferencia =
+      metrosOrigen -
+      metrosProductoBueno -
+      metrosRemanentes;
 
-        largoOrigenM,
-        largoFinalM,
+    const rendimientoTeoricoPorTira =
+      largoOrigenM > 0 &&
+      largoFinalM > 0
+        ? Math.floor(
+            largoOrigenM /
+              largoFinalM
+          )
+        : 0;
 
-        metrosOrigen,
-        metrosProductoBueno,
-        metrosRemanentes,
+    return {
+      cantidadOrigenNum,
+      cantidadObtenidaNum,
 
-        diferencia,
+      largoOrigenM,
+      largoFinalM,
 
-        rendimientoTeoricoPorTira,
-      };
-    }, [
-      cantidadOrigen,
-      cantidadObtenida,
-      origenSeleccionado,
-      productoObjetivo,
-      remanentes,
-    ]);
+      metrosOrigen,
+      metrosProductoBueno,
+      metrosRemanentes,
+
+      diferencia,
+
+      rendimientoTeoricoPorTira,
+    };
+  }, [
+    cantidadOrigen,
+    cantidadObtenida,
+    origenSeleccionado,
+    productoObjetivo,
+    remanentes,
+  ]);
 
   // =========================================================
   // VALIDACIONES
@@ -1062,12 +972,9 @@ export default function ConsumoEmpaquePage() {
 
   const erroresTransformacion =
     useMemo(() => {
-      const errores: string[] =
-        [];
+      const errores: string[] = [];
 
-      if (
-        !origenSeleccionado
-      ) {
+      if (!origenSeleccionado) {
         return errores;
       }
 
@@ -1098,28 +1005,13 @@ export default function ConsumoEmpaquePage() {
         );
       }
 
-      /*
-       * AQUÍ ESTÁ EL CAMBIO CLAVE:
-       *
-       * Ya no validamos contra el total original solicitado.
-       * Validamos contra lo que realmente queda pendiente.
-       *
-       * Ejemplo:
-       * solicitado 65
-       * procesado 23
-       * pendiente 42
-       *
-       * máximo permitido en una nueva operación = 42.
-       */
       if (
         itemSeleccionado &&
         calculos.cantidadObtenidaNum >
-          itemSeleccionado.cantidadPendienteUnd
+          itemSeleccionado.cantidadSolicitadaUnd
       ) {
         errores.push(
-          `Solo quedan ${itemSeleccionado.cantidadPendienteUnd.toLocaleString(
-            "es-CO"
-          )} und pendientes para este consecutivo.`
+          `Las piezas obtenidas superan las ${itemSeleccionado.cantidadSolicitadaUnd} und solicitadas para este consecutivo.`
         );
       }
 
@@ -1136,9 +1028,7 @@ export default function ConsumoEmpaquePage() {
       }
 
       if (hayRemanente) {
-        if (
-          !remanentes.length
-        ) {
+        if (!remanentes.length) {
           errores.push(
             "Agrega al menos un remanente."
           );
@@ -1159,9 +1049,7 @@ export default function ConsumoEmpaquePage() {
                 remanente.medidaMetros
               );
 
-            if (
-              cantidad <= 0
-            ) {
+            if (cantidad <= 0) {
               errores.push(
                 `Remanente ${
                   index + 1
@@ -1169,9 +1057,7 @@ export default function ConsumoEmpaquePage() {
               );
             }
 
-            if (
-              medida <= 0
-            ) {
+            if (medida <= 0) {
               errores.push(
                 `Remanente ${
                   index + 1
@@ -1267,9 +1153,7 @@ export default function ConsumoEmpaquePage() {
       transformacionKey ||
       crearTransformacionKey();
 
-    if (
-      !transformacionKey
-    ) {
+    if (!transformacionKey) {
       setTransformacionKey(
         key
       );
@@ -1281,22 +1165,18 @@ export default function ConsumoEmpaquePage() {
     const remanentesPayload =
       hayRemanente
         ? remanentes.map(
-            (
-              remanente
-            ) => ({
-              cantidad:
-                Math.floor(
-                  parseDecimal(
-                    remanente.cantidad
-                  )
-                ),
+            (remanente) => ({
+              cantidad: Math.floor(
+                parseDecimal(
+                  remanente.cantidad
+                )
+              ),
 
-              medidaMm:
-                Math.round(
-                  parseDecimal(
-                    remanente.medidaMetros
-                  ) * 1000
-                ),
+              medidaMm: Math.round(
+                parseDecimal(
+                  remanente.medidaMetros
+                ) * 1000
+              ),
             })
           )
         : [];
@@ -1305,9 +1185,7 @@ export default function ConsumoEmpaquePage() {
       remanentesPayload.length
         ? remanentesPayload
             .map(
-              (
-                remanente
-              ) =>
+              (remanente) =>
                 `${remanente.cantidad} und × ${formatMedida(
                   remanente.medidaMm
                 )}`
@@ -1315,92 +1193,56 @@ export default function ConsumoEmpaquePage() {
             .join("\n")
         : "Sin remanentes";
 
-    const pendienteEstimado =
-      Math.max(
-        0,
-        itemSeleccionado.cantidadPendienteUnd -
-          calculos.cantidadObtenidaNum
-      );
-
     const confirmado =
       window.confirm(
         [
           "¿Confirmas esta transformación?",
           "",
-
           `OTE: ${itemSeleccionado.OTE}`,
           `Consecutivo: ${itemSeleccionado.rowIndexPedido}`,
           `Lote origen: ${origenSeleccionado.OPE}`,
           `Medida origen: ${formatMedida(
             origenSeleccionado.medida_mm
           )}`,
-
           "",
-
-          `Solicitado original: ${itemSeleccionado.cantidadSolicitadaUnd} und`,
-          `Procesado anteriormente: ${itemSeleccionado.cantidadProcesadaUnd} und`,
-          `Pendiente antes: ${itemSeleccionado.cantidadPendienteUnd} und`,
-
-          "",
-
           `Unidades tomadas: ${calculos.cantidadOrigenNum}`,
           `Piezas buenas obtenidas: ${calculos.cantidadObtenidaNum}`,
-          `Pendiente después: ${pendienteEstimado} und`,
-
           "",
-
           "Remanentes:",
           detalleRemanentes,
-
           "",
-
           `Supervisor: ${supervisor}`,
           `Turno: ${turno}`,
-
           "",
-
           `Material origen: ${calculos.metrosOrigen.toLocaleString(
             "es-CO",
             {
-              minimumFractionDigits:
-                3,
-              maximumFractionDigits:
-                3,
+              minimumFractionDigits: 3,
+              maximumFractionDigits: 3,
             }
           )} m`,
-
           `Producto bueno: ${calculos.metrosProductoBueno.toLocaleString(
             "es-CO",
             {
-              minimumFractionDigits:
-                3,
-              maximumFractionDigits:
-                3,
+              minimumFractionDigits: 3,
+              maximumFractionDigits: 3,
             }
           )} m`,
-
           `Remanentes: ${calculos.metrosRemanentes.toLocaleString(
             "es-CO",
             {
-              minimumFractionDigits:
-                3,
-              maximumFractionDigits:
-                3,
+              minimumFractionDigits: 3,
+              maximumFractionDigits: 3,
             }
           )} m`,
-
           `Diferencia: ${calculos.diferencia.toLocaleString(
             "es-CO",
             {
-              minimumFractionDigits:
-                3,
-              maximumFractionDigits:
-                3,
+              minimumFractionDigits: 3,
+              maximumFractionDigits: 3,
             }
           )} m`,
-
           "",
-
           "Esta operación modificará realmente el inventario de producto en proceso.",
         ].join("\n")
       );
@@ -1411,57 +1253,53 @@ export default function ConsumoEmpaquePage() {
 
     try {
       setGuardando(true);
-
       setErrorGuardar("");
 
-      const res =
-        await fetch(
-          "/api/produccion/control-producto-proceso/transformacion",
-          {
-            method: "POST",
+      const res = await fetch(
+        "/api/produccion/control-producto-proceso/transformacion",
+        {
+          method: "POST",
 
-            headers: {
-              "Content-Type":
-                "application/json",
-            },
+          headers: {
+            "Content-Type":
+              "application/json",
+          },
 
-            body:
-              JSON.stringify({
-                transformacionKey:
-                  key,
+          body: JSON.stringify({
+            transformacionKey:
+              key,
 
-                solicitudCorteId:
-                  itemSeleccionado.solicitudCorteId,
+            solicitudCorteId:
+              itemSeleccionado.solicitudCorteId,
 
-                inventarioOrigenKey:
-                  origenSeleccionado.inventarioKey,
+            inventarioOrigenKey:
+              origenSeleccionado.inventarioKey,
 
-                cantidadOrigenUnd:
-                  calculos.cantidadOrigenNum,
+            cantidadOrigenUnd:
+              calculos.cantidadOrigenNum,
 
-                cantidadObtenidaUnd:
-                  calculos.cantidadObtenidaNum,
+            cantidadObtenidaUnd:
+              calculos.cantidadObtenidaNum,
 
-                remanentes:
-                  remanentesPayload,
+            remanentes:
+              remanentesPayload,
 
-                /*
-                 * Correo técnico del sistema.
-                 */
-                usuario:
-                  email,
+            /*
+             * Correo técnico del sistema.
+             */
+            usuario: email,
 
-                /*
-                 * Responsable físico de la operación.
-                 */
-                supervisor,
+            /*
+             * Responsable físico de la operación.
+             */
+            supervisor,
 
-                turno,
+            turno,
 
-                observacion,
-              }),
-          }
-        );
+            observacion,
+          }),
+        }
+      );
 
       const json =
         (await res.json()) as ResultadoTransformacion;
@@ -1481,11 +1319,17 @@ export default function ConsumoEmpaquePage() {
       );
 
       /*
-       * Actualizamos el listado general.
-       * cargarOrdenes también actualiza la OTE
-       * que tenemos abierta.
+       * Actualizamos las órdenes,
+       * pero dejamos visible el resultado
+       * para que el usuario pueda revisarlo.
        */
       await cargarOrdenes();
+
+      /*
+       * Importante:
+       * NO generamos una nueva transformacionKey aquí.
+       * La operación ya quedó cerrada.
+       */
     } catch (e: any) {
       setErrorGuardar(
         e?.message ||
@@ -1497,12 +1341,415 @@ export default function ConsumoEmpaquePage() {
   }
 
   // =========================================================
+  // VALIDACIÓN Y GUARDADO · PRODUCTO COMPUESTO
+  // =========================================================
+
+  const validacionCompuesto =
+    useMemo(() => {
+      const errores: string[] = [];
+
+      const cantidadFinal =
+        parseDecimal(
+          cantidadObtenida
+        );
+
+      const consumosPayload: Array<{
+        componente: string;
+        inventarioKey: string;
+        cantidadConsumidaUnd: number;
+      }> = [];
+
+      if (!modoCompuesto) {
+        return {
+          errores,
+          cantidadFinal: 0,
+          consumosPayload,
+          totalConsumido: 0,
+        };
+      }
+
+      if (
+        cantidadFinal <= 0
+      ) {
+        errores.push(
+          "Indica la cantidad final buena obtenida."
+        );
+      }
+
+      if (
+        itemSeleccionado &&
+        cantidadFinal >
+          itemSeleccionado
+            .cantidadSolicitadaUnd
+      ) {
+        errores.push(
+          `La cantidad final buena no puede superar las ${itemSeleccionado.cantidadSolicitadaUnd.toLocaleString(
+            "es-CO"
+          )} und solicitadas.`
+        );
+      }
+
+      for (
+        const componente of
+          componentesInventario
+      ) {
+        const seleccionados =
+          consumosComponentes[
+            componente.componente
+          ] || {};
+
+        const keys =
+          Object.keys(
+            seleccionados
+          );
+
+        if (!keys.length) {
+          errores.push(
+            `Selecciona al menos un lote para ${componente.componente}.`
+          );
+
+          continue;
+        }
+
+        let totalComponente =
+          0;
+
+        for (
+          const inventarioKey of
+            keys
+        ) {
+          const lote =
+            componente.lotes.find(
+              (item) =>
+                item.inventarioKey ===
+                inventarioKey
+            );
+
+          if (!lote) {
+            errores.push(
+              `Uno de los lotes seleccionados para ${componente.componente} ya no está disponible.`
+            );
+
+            continue;
+          }
+
+          const cantidad =
+            Math.floor(
+              parseDecimal(
+                seleccionados[
+                  inventarioKey
+                ]
+              )
+            );
+
+          if (
+            cantidad <= 0
+          ) {
+            errores.push(
+              `Indica la cantidad realmente utilizada del lote ${lote.OPE}.`
+            );
+
+            continue;
+          }
+
+          if (
+            cantidad >
+            lote.cantidadDisponible
+          ) {
+            errores.push(
+              `El lote ${lote.OPE} solo tiene ${lote.cantidadDisponible.toLocaleString(
+                "es-CO"
+              )} und disponibles.`
+            );
+
+            continue;
+          }
+
+          totalComponente +=
+            cantidad;
+
+          consumosPayload.push({
+            componente:
+              componente.componente,
+
+            inventarioKey:
+              lote.inventarioKey,
+
+            cantidadConsumidaUnd:
+              cantidad,
+          });
+        }
+
+        if (
+          cantidadFinal > 0
+        ) {
+          const necesario =
+            Math.ceil(
+              cantidadFinal *
+                componente.factorPorUnidad
+            );
+
+          if (
+            totalComponente <
+            necesario
+          ) {
+            errores.push(
+              `${componente.componente}: se necesitan mínimo ${necesario.toLocaleString(
+                "es-CO"
+              )} und y registraste ${totalComponente.toLocaleString(
+                "es-CO"
+              )} und.`
+            );
+          }
+        }
+      }
+
+      if (!turno) {
+        errores.push(
+          "Selecciona el turno."
+        );
+      }
+
+      if (!supervisor) {
+        errores.push(
+          "Selecciona el supervisor."
+        );
+      }
+
+      const totalConsumido =
+        consumosPayload.reduce(
+          (
+            total,
+            consumo
+          ) =>
+            total +
+            consumo.cantidadConsumidaUnd,
+          0
+        );
+
+      return {
+        errores,
+        cantidadFinal,
+        consumosPayload,
+        totalConsumido,
+      };
+    }, [
+      modoCompuesto,
+      cantidadObtenida,
+      itemSeleccionado,
+      componentesInventario,
+      consumosComponentes,
+      turno,
+      supervisor,
+    ]);
+
+  const consumoCompuestoValido =
+    modoCompuesto &&
+    validacionCompuesto.errores
+      .length === 0 &&
+    validacionCompuesto
+      .cantidadFinal > 0 &&
+    validacionCompuesto
+      .consumosPayload.length >
+      0;
+
+  async function guardarConsumoCompuesto() {
+    if (
+      !modoCompuesto ||
+      !itemSeleccionado
+    ) {
+      return;
+    }
+
+    setValidacionSolicitada(
+      true
+    );
+
+    setErrorGuardar("");
+
+    if (
+      !consumoCompuestoValido
+    ) {
+      return;
+    }
+
+    const key =
+      transformacionKey ||
+      crearTransformacionKey();
+
+    if (!transformacionKey) {
+      setTransformacionKey(
+        key
+      );
+    }
+
+    const detalleConsumos =
+      componentesInventario
+        .map(
+          (componente) => {
+            const seleccionados =
+              consumosComponentes[
+                componente.componente
+              ] || {};
+
+            const lotes =
+              componente.lotes
+                .filter(
+                  (lote) =>
+                    Object.prototype.hasOwnProperty.call(
+                      seleccionados,
+                      lote.inventarioKey
+                    )
+                )
+                .map(
+                  (lote) =>
+                    `${lote.OPE}: ${
+                      Math.floor(
+                        parseDecimal(
+                          seleccionados[
+                            lote.inventarioKey
+                          ]
+                        )
+                      )
+                    } und`
+                )
+                .join(", ");
+
+            const consumido =
+              totalConsumidoComponente(
+                componente.componente
+              );
+
+            const necesario =
+              Math.ceil(
+                validacionCompuesto
+                  .cantidadFinal *
+                  componente.factorPorUnidad
+              );
+
+            return (
+              `${componente.componente}: ` +
+              `${consumido.toLocaleString(
+                "es-CO"
+              )} und consumidas / ` +
+              `${necesario.toLocaleString(
+                "es-CO"
+              )} necesarias` +
+              (lotes
+                ? ` (${lotes})`
+                : "")
+            );
+          }
+        )
+        .join("\n");
+
+    const confirmado =
+      window.confirm(
+        [
+          "¿Confirmas este consumo compuesto?",
+          "",
+          `OTE: ${itemSeleccionado.OTE}`,
+          `Consecutivo: ${itemSeleccionado.rowIndexPedido}`,
+          `Producto final bueno: ${validacionCompuesto.cantidadFinal.toLocaleString(
+            "es-CO"
+          )} und`,
+          "",
+          "Consumos:",
+          detalleConsumos,
+          "",
+          `Supervisor: ${supervisor}`,
+          `Turno: ${turno}`,
+          "",
+          "Esta operación descontará realmente los lotes seleccionados del inventario de producto en proceso.",
+        ].join("\n")
+      );
+
+    if (!confirmado) {
+      return;
+    }
+
+    try {
+      setGuardando(true);
+      setErrorGuardar("");
+
+      const res =
+        await fetch(
+          "/api/produccion/control-producto-proceso/consumo-compuesto",
+          {
+            method:
+              "POST",
+
+            headers: {
+              "Content-Type":
+                "application/json",
+            },
+
+            body:
+              JSON.stringify(
+                {
+                  transformacionKey:
+                    key,
+
+                  solicitudCorteId:
+                    itemSeleccionado
+                      .solicitudCorteId,
+
+                  cantidadObtenidaUnd:
+                    Math.floor(
+                      validacionCompuesto
+                        .cantidadFinal
+                    ),
+
+                  consumos:
+                    validacionCompuesto
+                      .consumosPayload,
+
+                  usuario:
+                    email,
+
+                  supervisor,
+
+                  turno,
+
+                  observacion,
+                }
+              ),
+          }
+        );
+
+      const json =
+        (await res.json()) as ResultadoTransformacion;
+
+      if (
+        !res.ok ||
+        !json?.success
+      ) {
+        throw new Error(
+          json?.message ||
+            "No fue posible registrar el consumo compuesto."
+        );
+      }
+
+      setResultadoGuardar(
+        json
+      );
+
+      await cargarOrdenes();
+    } catch (e: any) {
+      setErrorGuardar(
+        e?.message ||
+          "Ocurrió un error registrando el consumo compuesto."
+      );
+    } finally {
+      setGuardando(false);
+    }
+  }
+
+  // =========================================================
   // SESIÓN
   // =========================================================
 
-  if (
-    status === "loading"
-  ) {
+  if (status === "loading") {
     return (
       <main className="mx-auto max-w-6xl px-6 py-8">
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -1523,7 +1770,8 @@ export default function ConsumoEmpaquePage() {
           </h1>
 
           <p className="mt-2 text-sm text-red-700">
-            Tu usuario no tiene permisos para registrar consumos de empaque.
+            Tu usuario no tiene permisos para
+            registrar consumos de empaque.
           </p>
 
           <Link
@@ -1550,7 +1798,8 @@ export default function ConsumoEmpaquePage() {
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <div className="mb-2 text-sm text-slate-500">
-            Producción · Control Producto en Proceso · Consumo de empaque
+            Producción · Control Producto en
+            Proceso · Consumo de empaque
           </div>
 
           <h1 className="text-2xl font-semibold">
@@ -1558,7 +1807,9 @@ export default function ConsumoEmpaquePage() {
           </h1>
 
           <p className="mt-1 text-sm text-slate-500">
-            Selecciona una orden de corte, el ítem y el lote de producto en proceso utilizado.
+            Selecciona una orden de corte, el
+            ítem y el lote de producto en
+            proceso utilizado.
           </p>
         </div>
 
@@ -1629,7 +1880,7 @@ export default function ConsumoEmpaquePage() {
              ================================================= */}
 
           <div className="mt-5 rounded-xl border border-slate-200 p-5">
-            <div className="grid gap-5 lg:grid-cols-[1fr_auto] lg:items-center">
+            <div className="grid gap-5 md:grid-cols-[1fr_auto] md:items-center">
               <div>
                 <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
                   Producto solicitado
@@ -1647,89 +1898,23 @@ export default function ConsumoEmpaquePage() {
                     itemSeleccionado.solicitudCorteId
                   }
                 </div>
-
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {itemSeleccionado.estadoProceso ===
-                  "Pendiente" ? (
-                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600">
-                      Pendiente
-                    </span>
-                  ) : null}
-
-                  {itemSeleccionado.estadoProceso ===
-                  "Parcial" ? (
-                    <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700">
-                      Parcial
-                    </span>
-                  ) : null}
-
-                  {itemSeleccionado.estadoProceso ===
-                  "Completo" ? (
-                    <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700">
-                      Completo
-                    </span>
-                  ) : null}
-
-                  {itemSeleccionado.operacionesRegistradas >
-                  0 ? (
-                    <span className="text-xs text-slate-500">
-                      {
-                        itemSeleccionado.operacionesRegistradas
-                      }{" "}
-                      operación(es) registrada(s)
-                    </span>
-                  ) : null}
-                </div>
               </div>
 
-              {/* =============================================
-                  SOLICITADO / PROCESADO / PENDIENTE
-                 ============================================= */}
-
-              <div className="grid gap-3 sm:grid-cols-3">
-                <div className="rounded-xl bg-slate-50 px-4 py-3 text-right">
-                  <div className="text-xs text-slate-500">
-                    Solicitado
-                  </div>
-
-                  <div className="mt-1 text-xl font-semibold text-slate-900">
-                    {itemSeleccionado.cantidadSolicitadaUnd.toLocaleString(
-                      "es-CO"
-                    )}{" "}
-                    <span className="text-sm">
-                      und
-                    </span>
-                  </div>
+              <div className="md:text-right">
+                <div className="text-xs text-slate-500">
+                  Cantidad solicitada
                 </div>
 
-                <div className="rounded-xl bg-blue-50 px-4 py-3 text-right">
-                  <div className="text-xs text-blue-700">
-                    Procesado
-                  </div>
-
-                  <div className="mt-1 text-xl font-semibold text-blue-700">
-                    {itemSeleccionado.cantidadProcesadaUnd.toLocaleString(
-                      "es-CO"
-                    )}{" "}
-                    <span className="text-sm">
-                      und
-                    </span>
-                  </div>
-                </div>
-
-                <div className="rounded-xl bg-amber-50 px-4 py-3 text-right">
-                  <div className="text-xs text-amber-700">
-                    Pendiente
-                  </div>
-
-                  <div className="mt-1 text-xl font-semibold text-amber-700">
-                    {itemSeleccionado.cantidadPendienteUnd.toLocaleString(
-                      "es-CO"
-                    )}{" "}
-                    <span className="text-sm">
-                      und
-                    </span>
-                  </div>
+                <div className="text-2xl font-semibold text-slate-900">
+                  {Number(
+                    itemSeleccionado.cantidadSolicitadaUnd ||
+                      0
+                  ).toLocaleString(
+                    "es-CO"
+                  )}{" "}
+                  <span className="text-sm">
+                    und
+                  </span>
                 </div>
               </div>
             </div>
@@ -1765,19 +1950,761 @@ export default function ConsumoEmpaquePage() {
           </div>
 
           {/* =================================================
-              INVENTARIO COMPATIBLE
+              INVENTARIO / COMPONENTES
              ================================================= */}
 
-          {!resultadoGuardar?.success ? (
+          {modoCompuesto &&
+          resultadoGuardar?.success ? (
+            <div className="mt-6 rounded-2xl border border-emerald-300 bg-emerald-50 p-5">
+              <div className="text-lg font-semibold text-emerald-800">
+                ✓ Consumo compuesto registrado correctamente
+              </div>
+
+              <p className="mt-1 text-sm text-emerald-700">
+                Los componentes fueron descontados de sus lotes reales y el avance del producto final quedó registrado.
+              </p>
+
+              <div className="mt-5 grid gap-3 sm:grid-cols-3">
+                <div className="rounded-xl bg-white/80 p-4">
+                  <div className="text-xs font-medium uppercase tracking-wide text-emerald-700">
+                    Producto bueno
+                  </div>
+
+                  <div className="mt-1 text-xl font-semibold text-emerald-900">
+                    {(
+                      resultadoGuardar.cantidadObtenidaUnd ??
+                      0
+                    ).toLocaleString("es-CO")}{" "}
+                    <span className="text-sm">
+                      und
+                    </span>
+                  </div>
+                </div>
+
+                <div className="rounded-xl bg-white/80 p-4">
+                  <div className="text-xs font-medium uppercase tracking-wide text-emerald-700">
+                    Movimientos
+                  </div>
+
+                  <div className="mt-1 text-xl font-semibold text-emerald-900">
+                    {resultadoGuardar.movimientosCreados ?? 0}
+                  </div>
+                </div>
+
+                <div className="rounded-xl bg-white/80 p-4">
+                  <div className="text-xs font-medium uppercase tracking-wide text-emerald-700">
+                    Pendiente
+                  </div>
+
+                  <div className="mt-1 text-xl font-semibold text-emerald-900">
+                    {(
+                      resultadoGuardar.pendienteDespues ??
+                      0
+                    ).toLocaleString("es-CO")}{" "}
+                    <span className="text-sm">
+                      und
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {resultadoGuardar.saldos?.length ? (
+                <div className="mt-5">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
+                    Inventario después de la operación
+                  </div>
+
+                  <div className="mt-3 space-y-2">
+                    {resultadoGuardar.saldos.map(
+                      (saldo) => (
+                        <div
+                          key={saldo.inventarioKey}
+                          className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-emerald-100 bg-white/80 px-4 py-3"
+                        >
+                          <div className="min-w-0">
+                            <div className="text-sm font-medium text-slate-900">
+                              {saldo.producto}
+                            </div>
+
+                            <div className="mt-1 text-xs text-slate-500">
+                              {saldo.OPE} ·{" "}
+                              {formatMedida(
+                                saldo.medida_mm
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="text-right">
+                            <div className="text-xs text-slate-500">
+                              Saldo
+                            </div>
+
+                            <div className="text-lg font-semibold text-emerald-700">
+                              {saldo.saldoDisponible.toLocaleString(
+                                "es-CO"
+                              )}{" "}
+                              <span className="text-sm">
+                                und
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    )}
+                  </div>
+                </div>
+              ) : null}
+
+              <div className="mt-5 rounded-xl bg-white/60 px-4 py-3 text-xs text-emerald-800">
+                Transformación:{" "}
+                <b>
+                  {resultadoGuardar.transformacionKey}
+                </b>
+              </div>
+
+              <div className="mt-5 flex flex-wrap gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    cambiarItem();
+                    cargarOrdenes();
+
+                    window.scrollTo({
+                      top: 0,
+                      behavior:
+                        "smooth",
+                    });
+                  }}
+                  className="rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800"
+                >
+                  Finalizar
+                </button>
+
+                <Link
+                  href="/produccion/control-producto-proceso/inventario"
+                  className="rounded-xl border border-emerald-300 bg-white px-4 py-2 text-sm font-medium text-emerald-800 hover:bg-emerald-50"
+                >
+                  Ver inventario actual →
+                </Link>
+
+                <Link
+                  href="/produccion/control-producto-proceso/historial"
+                  className="rounded-xl border border-emerald-300 bg-white px-4 py-2 text-sm font-medium text-emerald-800 hover:bg-emerald-50"
+                >
+                  Ver historial →
+                </Link>
+              </div>
+            </div>
+          ) : !resultadoGuardar?.success ? (
+            modoCompuesto ? (
+              <div className="mt-6 space-y-4">
+                <div className="rounded-2xl border border-indigo-200 bg-indigo-50/50 p-5">
+                  <div className="flex flex-wrap items-start justify-between gap-4">
+                    <div>
+                      <div className="text-xs font-semibold uppercase tracking-wide text-indigo-600">
+                        Producto compuesto
+                      </div>
+
+                      <h3 className="mt-1 text-lg font-semibold text-slate-900">
+                        Componentes requeridos para este producto
+                      </h3>
+
+                      <p className="mt-1 text-sm text-slate-600">
+                        Puedes consumir uno o varios lotes por componente. La cantidad usada en cada lote debe corresponder a lo que realmente ocurrió en planta.
+                      </p>
+                    </div>
+
+                    <div className="rounded-xl bg-white px-4 py-3 text-right shadow-sm">
+                      <div className="text-xs text-slate-500">
+                        Componentes
+                      </div>
+                      <div className="text-xl font-semibold text-slate-900">
+                        {componentesInventario.length}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 bg-white p-5">
+                  <div className="grid gap-4 md:grid-cols-[1fr_220px] md:items-end">
+                    <div>
+                      <label className="text-sm font-semibold text-slate-800">
+                        Cantidad final buena a registrar
+                      </label>
+                      <p className="mt-1 text-xs text-slate-500">
+                        Esta es la cantidad de conjuntos buenos que realmente se obtuvieron en esta operación.
+                      </p>
+                    </div>
+
+                    <div>
+                      <input
+                        value={cantidadObtenida}
+                        onChange={(e) => {
+                          const value = e.target.value;
+
+                          if (
+                            value === "" ||
+                            /^\d*$/.test(value)
+                          ) {
+                            setCantidadObtenida(value);
+                            setValidacionSolicitada(false);
+                            setErrorGuardar("");
+                          }
+                        }}
+                        inputMode="numeric"
+                        placeholder={String(
+                          itemSeleccionado.cantidadSolicitadaUnd || ""
+                        )}
+                        className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-right text-lg font-semibold outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {componentesInventario.map((componente) => {
+                  const cantidadFinal =
+                    parseDecimal(cantidadObtenida);
+
+                  const necesario =
+                    cantidadFinal > 0
+                      ? cantidadFinal * componente.factorPorUnidad
+                      : componente.necesarioTeorico;
+
+                  const consumido =
+                    totalConsumidoComponente(
+                      componente.componente
+                    );
+
+                  const diferencia =
+                    consumido - necesario;
+
+                  const completo =
+                    cantidadFinal > 0 &&
+                    consumido >= necesario;
+
+                  return (
+                    <div
+                      key={componente.componente}
+                      className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
+                    >
+                      <div className="border-b border-slate-100 p-5">
+                        <div className="flex flex-wrap items-start justify-between gap-4">
+                          <div>
+                            <div className="text-xs font-semibold uppercase tracking-wide text-indigo-600">
+                              Componente
+                            </div>
+
+                            <h4 className="mt-1 text-lg font-semibold text-slate-900">
+                              {componente.componente}
+                            </h4>
+
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs text-slate-600">
+                                {componente.criterioComponente.color}
+                              </span>
+                              <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs text-slate-600">
+                                {componente.criterioComponente.ancho}
+                              </span>
+                              <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs text-slate-600">
+                                {formatMedida(
+                                  componente.criterioComponente.medida_mm
+                                )}
+                              </span>
+                              {componente.criterioComponente.acabado ? (
+                                <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs text-slate-600">
+                                  {componente.criterioComponente.acabado}
+                                </span>
+                              ) : null}
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-3 gap-2 text-center">
+                            <div className="rounded-xl bg-slate-50 px-3 py-2">
+                              <div className="text-[11px] text-slate-500">
+                                Factor
+                              </div>
+                              <div className="mt-1 font-semibold">
+                                ×{componente.factorPorUnidad}
+                              </div>
+                            </div>
+
+                            <div className="rounded-xl bg-slate-50 px-3 py-2">
+                              <div className="text-[11px] text-slate-500">
+                                Necesario
+                              </div>
+                              <div className="mt-1 font-semibold">
+                                {Number(necesario || 0).toLocaleString("es-CO")}
+                              </div>
+                            </div>
+
+                            <div
+                              className={`rounded-xl px-3 py-2 ${
+                                completo
+                                  ? "bg-emerald-50"
+                                  : "bg-amber-50"
+                              }`}
+                            >
+                              <div className="text-[11px] text-slate-500">
+                                Consumido
+                              </div>
+                              <div
+                                className={`mt-1 font-semibold ${
+                                  completo
+                                    ? "text-emerald-700"
+                                    : "text-amber-700"
+                                }`}
+                              >
+                                {Number(consumido || 0).toLocaleString("es-CO")}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {componente.lotes.length ? (
+                        <div className="divide-y divide-slate-100">
+                          {componente.lotes.map((lote) => {
+                            const lotesSeleccionados =
+                              consumosComponentes[
+                                componente.componente
+                              ] || {};
+
+                            const seleccionado =
+                              Object.prototype.hasOwnProperty.call(
+                                lotesSeleccionados,
+                                lote.inventarioKey
+                              );
+
+                            const value = seleccionado
+                              ? lotesSeleccionados[
+                                  lote.inventarioKey
+                                ] || ""
+                              : "";
+
+                            const cantidadUsada =
+                              parseDecimal(value);
+
+                            const superaDisponible =
+                              seleccionado &&
+                              cantidadUsada >
+                                lote.cantidadDisponible;
+
+                            return (
+                              <div
+                                key={lote.inventarioKey}
+                                className={`p-5 transition ${
+                                  seleccionado
+                                    ? "bg-indigo-50/40"
+                                    : "bg-white"
+                                }`}
+                              >
+                                <div className="grid gap-4 lg:grid-cols-[1fr_130px_150px_180px] lg:items-center">
+                                  <div>
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      <div className="font-semibold text-slate-900">
+                                        {lote.OPE}
+                                      </div>
+
+                                      <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
+                                        Disponible
+                                      </span>
+
+                                      {seleccionado ? (
+                                        <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-xs font-semibold text-indigo-700">
+                                          ✓ Seleccionado
+                                        </span>
+                                      ) : null}
+                                    </div>
+
+                                    <div className="mt-1 text-sm text-slate-700">
+                                      {lote.producto}
+                                    </div>
+
+                                    <div className="mt-1 text-xs text-slate-400">
+                                      Último movimiento: {formatFecha(
+                                        lote.fechaUltimoMovimiento
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  <div className="lg:text-right">
+                                    <div className="text-xs text-slate-500">
+                                      Medida
+                                    </div>
+                                    <div className="mt-1 font-semibold">
+                                      {formatMedida(lote.medida_mm)}
+                                    </div>
+                                  </div>
+
+                                  <div className="lg:text-right">
+                                    <div className="text-xs text-slate-500">
+                                      Disponible
+                                    </div>
+                                    <div className="mt-1 text-lg font-semibold text-emerald-700">
+                                      {lote.cantidadDisponible.toLocaleString("es-CO")} und
+                                    </div>
+                                  </div>
+
+                                  <div className="lg:text-right">
+                                    {!seleccionado ? (
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          seleccionarLoteComponente(
+                                            componente.componente,
+                                            lote.inventarioKey
+                                          )
+                                        }
+                                        className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-indigo-700"
+                                      >
+                                        Usar este lote
+                                      </button>
+                                    ) : (
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          quitarLoteComponente(
+                                            componente.componente,
+                                            lote.inventarioKey
+                                          )
+                                        }
+                                        className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-50"
+                                      >
+                                        Quitar lote
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+
+                                {seleccionado ? (
+                                  <div className="mt-4 rounded-xl border border-indigo-100 bg-white p-4">
+                                    <div className="flex flex-wrap items-end justify-between gap-4">
+                                      <div className="min-w-0 flex-1">
+                                        <label className="text-xs font-semibold text-slate-700">
+                                          Cantidad realmente utilizada
+                                        </label>
+
+                                        <p className="mt-1 text-xs text-slate-500">
+                                          Registra las unidades que físicamente se tomaron de este lote.
+                                        </p>
+                                      </div>
+
+                                      <div className="w-full sm:w-[240px]">
+                                        <div className="flex items-center gap-2">
+                                          <input
+                                            value={value}
+                                            onChange={(e) =>
+                                              actualizarConsumoComponente(
+                                                componente.componente,
+                                                lote.inventarioKey,
+                                                e.target.value
+                                              )
+                                            }
+                                            inputMode="numeric"
+                                            placeholder="0"
+                                            className={`min-w-0 flex-1 rounded-xl border px-3 py-2 text-right font-semibold outline-none focus:ring-2 ${
+                                              superaDisponible
+                                                ? "border-red-300 text-red-700 focus:border-red-400 focus:ring-red-100"
+                                                : "border-slate-300 focus:border-indigo-400 focus:ring-indigo-100"
+                                            }`}
+                                          />
+
+                                          <span className="text-sm text-slate-500">
+                                            und
+                                          </span>
+                                        </div>
+
+                                        {superaDisponible ? (
+                                          <div className="mt-1 text-xs font-medium text-red-600">
+                                            Supera las {lote.cantidadDisponible.toLocaleString("es-CO")} und disponibles.
+                                          </div>
+                                        ) : null}
+                                      </div>
+                                    </div>
+                                  </div>
+                                ) : null}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <div className="m-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+                          No hay inventario disponible que cumpla el criterio de este componente.
+                        </div>
+                      )}
+
+                      <div className="border-t border-slate-100 bg-slate-50 px-5 py-3">
+                        <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
+                          <div className="text-slate-500">
+                            Total disponible: {componente.totalDisponible.toLocaleString("es-CO")} und · {componente.cantidadLotes} lote(s)
+                          </div>
+
+                          <div className="flex items-center gap-3">
+                            {cantidadFinal <= 0 ? (
+                              <span className="font-medium text-slate-500">
+                                Indica la cantidad final buena
+                              </span>
+                            ) : diferencia < 0 ? (
+                              <span className="font-semibold text-amber-700">
+                                Faltan {Math.abs(diferencia).toLocaleString("es-CO")} und
+                              </span>
+                            ) : (
+                              <>
+                                <span className="font-semibold text-emerald-700">
+                                  Cubierto
+                                </span>
+                                {diferencia > 0 ? (
+                                  <span className="font-medium text-rose-600">
+                                    Exceso / pérdida: {diferencia.toLocaleString("es-CO")} und
+                                  </span>
+                                ) : null}
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+                  <div className="font-semibold text-slate-900">
+                    Confirmar consumo compuesto
+                  </div>
+
+                  <p className="mt-1 text-sm text-slate-500">
+                    Revisa las cantidades reales utilizadas y registra quién realizó la operación.
+                  </p>
+
+                  <div className="mt-5 grid gap-4 md:grid-cols-2">
+                    <div>
+                      <label className="text-sm font-medium text-slate-700">
+                        Turno *
+                      </label>
+
+                      <select
+                        value={turno}
+                        disabled={guardando}
+                        onChange={(e) => {
+                          setTurno(
+                            e.target.value
+                          );
+
+                          setValidacionSolicitada(
+                            false
+                          );
+
+                          setErrorGuardar(
+                            ""
+                          );
+                        }}
+                        className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 disabled:bg-slate-100"
+                      >
+                        <option value="">
+                          Seleccionar turno
+                        </option>
+
+                        <option value="06:00-14:00">
+                          06:00 - 14:00
+                        </option>
+
+                        <option value="14:00-22:00">
+                          14:00 - 22:00
+                        </option>
+
+                        <option value="22:00-06:00">
+                          22:00 - 06:00
+                        </option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="text-sm font-medium text-slate-700">
+                        Supervisor *
+                      </label>
+
+                      <select
+                        value={supervisor}
+                        disabled={
+                          loadingSupervisores ||
+                          guardando
+                        }
+                        onChange={(e) => {
+                          setSupervisor(
+                            e.target.value
+                          );
+
+                          setValidacionSolicitada(
+                            false
+                          );
+
+                          setErrorGuardar(
+                            ""
+                          );
+                        }}
+                        className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 disabled:bg-slate-100"
+                      >
+                        <option value="">
+                          {loadingSupervisores
+                            ? "Cargando supervisores..."
+                            : "Seleccionar supervisor"}
+                        </option>
+
+                        {supervisores.map(
+                          (nombre) => (
+                            <option
+                              key={nombre}
+                              value={nombre}
+                            >
+                              {nombre}
+                            </option>
+                          )
+                        )}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="mt-5">
+                    <label className="text-sm font-medium text-slate-700">
+                      Observación
+                    </label>
+
+                    <textarea
+                      value={observacion}
+                      disabled={guardando}
+                      onChange={(e) => {
+                        setObservacion(
+                          e.target.value
+                        );
+
+                        setErrorGuardar(
+                          ""
+                        );
+                      }}
+                      rows={3}
+                      placeholder="Opcional. Ej. Se consumieron unidades adicionales por producto no conforme."
+                      className="mt-2 w-full resize-none rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 disabled:bg-slate-100"
+                    />
+                  </div>
+
+                  <div className="mt-5 grid gap-3 sm:grid-cols-3">
+                    <div className="rounded-xl bg-white p-3">
+                      <div className="text-xs text-slate-500">
+                        Producto final bueno
+                      </div>
+
+                      <div className="mt-1 text-lg font-semibold text-slate-900">
+                        {validacionCompuesto.cantidadFinal.toLocaleString(
+                          "es-CO"
+                        )}{" "}
+                        und
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl bg-white p-3">
+                      <div className="text-xs text-slate-500">
+                        Total consumido
+                      </div>
+
+                      <div className="mt-1 text-lg font-semibold text-slate-900">
+                        {validacionCompuesto.totalConsumido.toLocaleString(
+                          "es-CO"
+                        )}{" "}
+                        und
+                      </div>
+                    </div>
+
+                    <div
+                      className={`rounded-xl p-3 ${
+                        consumoCompuestoValido
+                          ? "bg-emerald-50"
+                          : "bg-amber-50"
+                      }`}
+                    >
+                      <div className="text-xs text-slate-500">
+                        Estado
+                      </div>
+
+                      <div
+                        className={`mt-1 text-lg font-semibold ${
+                          consumoCompuestoValido
+                            ? "text-emerald-700"
+                            : "text-amber-700"
+                        }`}
+                      >
+                        {consumoCompuestoValido
+                          ? "Listo para guardar"
+                          : "Pendiente"}
+                      </div>
+                    </div>
+                  </div>
+
+                  {validacionSolicitada &&
+                  validacionCompuesto.errores.length ? (
+                    <div className="mt-5 rounded-xl border border-red-200 bg-red-50 p-4">
+                      <div className="text-sm font-semibold text-red-800">
+                        Revisa antes de guardar:
+                      </div>
+
+                      <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-red-700">
+                        {validacionCompuesto.errores.map(
+                          (errorItem) => (
+                            <li key={errorItem}>
+                              {errorItem}
+                            </li>
+                          )
+                        )}
+                      </ul>
+                    </div>
+                  ) : null}
+
+                  {errorGuardar ? (
+                    <div className="mt-5 rounded-xl border border-red-200 bg-red-50 p-4 text-sm font-medium text-red-700">
+                      {errorGuardar}
+                    </div>
+                  ) : null}
+
+                  <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
+                    <p className="text-xs text-slate-500">
+                      Al confirmar, PEX descontará cada lote seleccionado y registrará una sola cantidad final buena para la OTE.
+                    </p>
+
+                    <button
+                      type="button"
+                      disabled={guardando}
+                      onClick={() => {
+                        setValidacionSolicitada(
+                          true
+                        );
+
+                        if (
+                          consumoCompuestoValido
+                        ) {
+                          guardarConsumoCompuesto();
+                        }
+                      }}
+                      className="rounded-xl bg-indigo-600 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {guardando
+                        ? "Registrando consumo..."
+                        : "Registrar consumo compuesto"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : (
+
             <div className="mt-6">
               <div className="flex flex-wrap items-end justify-between gap-3">
                 <div>
                   <h3 className="text-base font-semibold text-slate-900">
-                    Producto en proceso disponible
+                    Producto en proceso
+                    disponible
                   </h3>
 
                   <p className="mt-1 text-sm text-slate-500">
-                    Selecciona el lote que físicamente estás utilizando.
+                    Selecciona el lote que
+                    físicamente estás utilizando.
                   </p>
                 </div>
 
@@ -1794,7 +2721,8 @@ export default function ConsumoEmpaquePage() {
 
               {loadingCompatibles ? (
                 <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-5 text-sm text-slate-500">
-                  Buscando producto en proceso compatible...
+                  Buscando producto en
+                  proceso compatible...
                 </div>
               ) : errorCompatibles ? (
                 <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-5 text-sm font-medium text-red-700">
@@ -1804,11 +2732,16 @@ export default function ConsumoEmpaquePage() {
                 0 ? (
                 <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-5">
                   <div className="text-sm font-semibold text-amber-800">
-                    No hay producto compatible disponible
+                    No hay producto
+                    compatible disponible
                   </div>
 
                   <p className="mt-1 text-sm text-amber-700">
-                    No se encontró inventario con la misma familia, color y ancho, y con longitud suficiente para este ítem.
+                    No se encontró inventario
+                    con la misma familia,
+                    color y ancho, y con
+                    longitud suficiente para
+                    este ítem.
                   </p>
                 </div>
               ) : (
@@ -1853,7 +2786,8 @@ export default function ConsumoEmpaquePage() {
                               </div>
 
                               <div className="mt-2 text-xs text-slate-400">
-                                Último movimiento:{" "}
+                                Último
+                                movimiento:{" "}
                                 {formatFecha(
                                   inv.fechaUltimoMovimiento
                                 )}
@@ -1917,6 +2851,8 @@ export default function ConsumoEmpaquePage() {
                 </div>
               )}
             </div>
+
+            )
           ) : null}
 
           {/* =================================================
@@ -1946,7 +2882,9 @@ export default function ConsumoEmpaquePage() {
                 </h3>
 
                 <p className="mt-1 text-sm text-slate-600">
-                  Registra lo que realmente ocurrió durante el corte y empaque.
+                  Registra lo que realmente
+                  ocurrió durante el corte y
+                  empaque.
                 </p>
               </div>
 
@@ -1961,27 +2899,10 @@ export default function ConsumoEmpaquePage() {
                   </div>
 
                   <div className="mt-2 text-sm text-emerald-700">
-                    La operación ya fue aplicada al inventario de producto en proceso.
+                    La operación ya fue aplicada
+                    al inventario de producto en
+                    proceso.
                   </div>
-
-                  {resultadoGuardar.itemCerradoAutomaticamente ? (
-  <div className="mt-4 rounded-xl border border-emerald-300 bg-white/80 p-4">
-    <div className="font-semibold text-emerald-800">
-      ✓ Ítem completado
-    </div>
-
-    <p className="mt-1 text-sm text-emerald-700">
-      Se completó la cantidad solicitada y PEX actualizó automáticamente el estado de{" "}
-      <b>{resultadoGuardar.estadoItemAnterior || "Generada"}</b>
-      {" → "}
-      <b>{resultadoGuardar.estadoItemFinal || "Empacado"}</b>.
-    </p>
-
-    <p className="mt-2 text-xs text-slate-500">
-      Este consecutivo ya no podrá registrar nuevas transformaciones y queda disponible para el flujo de entrega a almacén.
-    </p>
-  </div>
-) : null}
 
                   <div className="mt-5 grid gap-3 sm:grid-cols-3">
                     <div className="rounded-xl bg-white/80 p-4">
@@ -2140,10 +3061,10 @@ export default function ConsumoEmpaquePage() {
                   <div className="mt-5 flex flex-wrap gap-3">
                     <button
                       type="button"
-                      onClick={async () => {
+                      onClick={() => {
                         cambiarItem();
 
-                        await cargarOrdenes();
+                        cargarOrdenes();
 
                         window.scrollTo({
                           top: 0,
@@ -2253,16 +3174,12 @@ export default function ConsumoEmpaquePage() {
                         por pieza
                       </div>
 
-                      {/* CAMBIO: ya mostramos lo pendiente */}
-
                       <div className="mt-1 text-xs text-slate-500">
-                        Pendiente por atender:{" "}
-                        <b>
-                          {itemSeleccionado.cantidadPendienteUnd.toLocaleString(
-                            "es-CO"
-                          )}{" "}
-                          und
-                        </b>
+                        Pedido:{" "}
+                        {
+                          itemSeleccionado.cantidadSolicitadaUnd
+                        }{" "}
+                        und
                       </div>
 
                       <label className="mt-4 block text-sm font-medium text-slate-700">
@@ -2303,9 +3220,7 @@ export default function ConsumoEmpaquePage() {
                             ""
                           );
                         }}
-                        placeholder={`Máximo ${itemSeleccionado.cantidadPendienteUnd.toLocaleString(
-                          "es-CO"
-                        )}`}
+                        placeholder="Ej. 10"
                         className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-3 text-sm font-semibold outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 disabled:bg-slate-100"
                       />
                     </div>
@@ -2314,7 +3229,9 @@ export default function ConsumoEmpaquePage() {
                   {calculos.rendimientoTeoricoPorTira >
                   0 ? (
                     <div className="mt-3 text-xs text-slate-500">
-                      Aprovechamiento teórico sin considerar pérdidas de corte: hasta{" "}
+                      Aprovechamiento
+                      teórico sin considerar
+                      pérdidas de corte: hasta{" "}
                       <b>
                         {
                           calculos.rendimientoTeoricoPorTira
@@ -2344,7 +3261,10 @@ export default function ConsumoEmpaquePage() {
                         </h4>
 
                         <p className="mt-1 text-xs text-slate-500">
-                          Registra únicamente sobrantes que vuelvan físicamente al inventario.
+                          Registra únicamente
+                          sobrantes que vuelvan
+                          físicamente al
+                          inventario.
                         </p>
                       </div>
 
@@ -2431,7 +3351,8 @@ export default function ConsumoEmpaquePage() {
                               <div className="mt-3 grid gap-3 md:grid-cols-2">
                                 <div>
                                   <label className="text-xs font-medium text-slate-600">
-                                    Cantidad física
+                                    Cantidad
+                                    física
                                   </label>
 
                                   <input
@@ -2461,7 +3382,9 @@ export default function ConsumoEmpaquePage() {
 
                                 <div>
                                   <label className="text-xs font-medium text-slate-600">
-                                    Medida real de cada remanente
+                                    Medida real
+                                    de cada
+                                    remanente
                                   </label>
 
                                   <div className="mt-1 flex items-center gap-2">
@@ -2509,7 +3432,8 @@ export default function ConsumoEmpaquePage() {
                           }
                           className="rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm font-medium text-indigo-700 hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50"
                         >
-                          + Agregar otro remanente
+                          + Agregar otro
+                          remanente
                         </button>
                       </div>
                     ) : null}
@@ -2757,7 +3681,13 @@ export default function ConsumoEmpaquePage() {
                     </div>
 
                     <p className="mt-3 text-xs text-slate-500">
-                      Una diferencia positiva corresponde al material no recuperado por corte, puntas, ajuste o desperdicio. Una diferencia negativa no es válida.
+                      Una diferencia positiva
+                      corresponde al material no
+                      recuperado por corte,
+                      puntas, ajuste o
+                      desperdicio. Una
+                      diferencia negativa no es
+                      válida.
                     </p>
                   </div>
 
@@ -2773,13 +3703,17 @@ export default function ConsumoEmpaquePage() {
                         </div>
 
                         <p className="mt-1 text-sm text-emerald-700">
-                          Revisa los datos y confirma el guardado para afectar el inventario real.
+                          Revisa los datos y
+                          confirma el guardado
+                          para afectar el
+                          inventario real.
                         </p>
                       </div>
                     ) : (
                       <div className="mt-5 rounded-xl border border-red-200 bg-red-50 p-4">
                         <div className="font-semibold text-red-800">
-                          Revisa la transformación
+                          Revisa la
+                          transformación
                         </div>
 
                         <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-red-700">
@@ -2885,37 +3819,10 @@ export default function ConsumoEmpaquePage() {
               </h2>
 
               <p className="mt-1 text-sm text-slate-500">
-                Selecciona el consecutivo que vas a trabajar.
+                Selecciona el
+                consecutivo que vas a
+                trabajar.
               </p>
-
-              <div className="mt-3 flex flex-wrap gap-3 text-xs">
-                <span className="rounded-full bg-slate-100 px-2 py-1 text-slate-600">
-                  {oteSeleccionada.cantidadItems.toLocaleString(
-                    "es-CO"
-                  )}{" "}
-                  ítem(s)
-                </span>
-
-                <span className="rounded-full bg-blue-50 px-2 py-1 text-blue-700">
-                  Procesado:{" "}
-                  <b>
-                    {oteSeleccionada.totalProcesadoUnd.toLocaleString(
-                      "es-CO"
-                    )}{" "}
-                    und
-                  </b>
-                </span>
-
-                <span className="rounded-full bg-amber-50 px-2 py-1 text-amber-700">
-                  Pendiente:{" "}
-                  <b>
-                    {oteSeleccionada.totalPendienteUnd.toLocaleString(
-                      "es-CO"
-                    )}{" "}
-                    und
-                  </b>
-                </span>
-              </div>
             </div>
 
             <button
@@ -2959,57 +3866,7 @@ export default function ConsumoEmpaquePage() {
                         }
                       </div>
 
-                      {/* ESTADO DEL ÍTEM */}
-
-                      <div className="mt-2 flex flex-wrap items-center gap-2">
-                        {item.estadoProceso ===
-                        "Pendiente" ? (
-                          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600">
-                            Pendiente
-                          </span>
-                        ) : null}
-
-                        {item.estadoProceso ===
-                        "Parcial" ? (
-                          <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700">
-                            Parcial
-                          </span>
-                        ) : null}
-
-                        {item.estadoProceso ===
-                        "Completo" ? (
-                          <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700">
-                            Completo
-                          </span>
-                        ) : null}
-
-                        {item.cantidadProcesadaUnd >
-                        0 ? (
-                          <span className="text-xs text-slate-500">
-                            Procesado:{" "}
-                            <b>
-                              {item.cantidadProcesadaUnd.toLocaleString(
-                                "es-CO"
-                              )}{" "}
-                              und
-                            </b>
-                            {" · "}
-                            Pendiente:{" "}
-                            <b>
-                              {item.cantidadPendienteUnd.toLocaleString(
-                                "es-CO"
-                              )}{" "}
-                              und
-                            </b>
-                          </span>
-                        ) : (
-                          <span className="text-xs text-slate-500">
-                            Sin transformaciones registradas
-                          </span>
-                        )}
-                      </div>
-
-                      <div className="mt-1 text-xs text-slate-400">
+                      <div className="mt-1 text-xs text-slate-500">
                         {
                           item.solicitudCorteId
                         }
@@ -3022,7 +3879,10 @@ export default function ConsumoEmpaquePage() {
                       </div>
 
                       <div className="font-semibold text-slate-900">
-                        {item.cantidadSolicitadaUnd.toLocaleString(
+                        {Number(
+                          item.cantidadSolicitadaUnd ||
+                            0
+                        ).toLocaleString(
                           "es-CO"
                         )}{" "}
                         und
@@ -3032,29 +3892,14 @@ export default function ConsumoEmpaquePage() {
                     <div className="lg:text-right">
                       <button
                         type="button"
-                        disabled={
-                          item.cantidadPendienteUnd <=
-                          0
-                        }
                         onClick={() =>
                           seleccionarItem(
                             item
                           )
                         }
-                        className={`rounded-xl px-4 py-2 text-sm font-medium shadow-sm transition ${
-                          item.cantidadPendienteUnd <=
-                          0
-                            ? "cursor-not-allowed bg-slate-200 text-slate-500"
-                            : "bg-indigo-600 text-white hover:bg-indigo-700"
-                        }`}
+                        className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-indigo-700"
                       >
-                        {item.cantidadPendienteUnd <=
-                        0
-                          ? "Completo"
-                          : item.cantidadProcesadaUnd >
-                              0
-                            ? "Continuar"
-                            : "Seleccionar"}
+                        Seleccionar
                       </button>
                     </div>
                   </div>
@@ -3084,7 +3929,7 @@ export default function ConsumoEmpaquePage() {
 
           <div className="rounded-xl bg-slate-50 p-4">
             <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
-              Ítems en OTE Generadas
+              Ítems disponibles
             </div>
 
             <div className="mt-1 text-2xl font-semibold text-slate-900">
@@ -3093,18 +3938,13 @@ export default function ConsumoEmpaquePage() {
             </div>
           </div>
 
-          <div className="rounded-xl bg-amber-50 p-4">
-            <div className="text-xs font-medium uppercase tracking-wide text-amber-700">
-              Unidades pendientes
+          <div className="rounded-xl bg-slate-50 p-4">
+            <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
+              Estado consultado
             </div>
 
-            <div className="mt-1 text-2xl font-semibold text-amber-700">
-              {(
-                data?.totalPendienteUnd ??
-                0
-              ).toLocaleString(
-                "es-CO"
-              )}
+            <div className="mt-1 text-lg font-semibold text-slate-900">
+              Generada
             </div>
           </div>
         </div>
@@ -3162,7 +4002,7 @@ export default function ConsumoEmpaquePage() {
               >
                 <div className="flex flex-wrap items-start justify-between gap-4">
                   <div>
-                    <div className="flex flex-wrap items-center gap-2">
+                    <div className="flex items-center gap-2">
                       <h2 className="text-lg font-semibold text-slate-900">
                         {
                           grupo.OTE
@@ -3172,26 +4012,6 @@ export default function ConsumoEmpaquePage() {
                       <span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs font-semibold text-blue-700">
                         Generada
                       </span>
-
-                      {grupo.itemsParciales >
-                      0 ? (
-                        <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700">
-                          {
-                            grupo.itemsParciales
-                          }{" "}
-                          parcial(es)
-                        </span>
-                      ) : null}
-
-                      {grupo.itemsCompletos >
-                      0 ? (
-                        <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700">
-                          {
-                            grupo.itemsCompletos
-                          }{" "}
-                          completo(s)
-                        </span>
-                      ) : null}
                     </div>
 
                     <p className="mt-1 text-sm text-slate-500">
@@ -3205,47 +4025,17 @@ export default function ConsumoEmpaquePage() {
                     </p>
                   </div>
 
-                  <div className="flex flex-wrap items-center gap-5">
-                    {/* NUEVO RESUMEN OTE */}
-
-                    <div className="flex flex-wrap gap-5 text-right">
-                      <div>
-                        <div className="text-xs text-slate-500">
-                          Solicitado
-                        </div>
-
-                        <div className="font-semibold text-slate-900">
-                          {grupo.totalSolicitadoUnd.toLocaleString(
-                            "es-CO"
-                          )}{" "}
-                          und
-                        </div>
+                  <div className="flex items-center gap-5">
+                    <div className="text-right">
+                      <div className="text-xs text-slate-500">
+                        Total solicitado
                       </div>
 
-                      <div>
-                        <div className="text-xs text-blue-600">
-                          Procesado
-                        </div>
-
-                        <div className="font-semibold text-blue-700">
-                          {grupo.totalProcesadoUnd.toLocaleString(
-                            "es-CO"
-                          )}{" "}
-                          und
-                        </div>
-                      </div>
-
-                      <div>
-                        <div className="text-xs text-amber-600">
-                          Pendiente
-                        </div>
-
-                        <div className="font-semibold text-amber-700">
-                          {grupo.totalPendienteUnd.toLocaleString(
-                            "es-CO"
-                          )}{" "}
-                          und
-                        </div>
+                      <div className="font-semibold text-slate-900">
+                        {grupo.totalSolicitadoUnd.toLocaleString(
+                          "es-CO"
+                        )}{" "}
+                        und
                       </div>
                     </div>
 
@@ -3262,10 +4052,6 @@ export default function ConsumoEmpaquePage() {
                     </button>
                   </div>
                 </div>
-
-                {/* ===========================================
-                    VISTA PREVIA DE LOS PRIMEROS 3 ÍTEMS
-                   =========================================== */}
 
                 <div className="mt-5 overflow-hidden rounded-xl border border-slate-200">
                   <div className="divide-y divide-slate-200">
@@ -3297,56 +4083,10 @@ export default function ConsumoEmpaquePage() {
                               </div>
                             </div>
 
-                            <div>
-                              <div className="text-sm font-medium text-slate-900">
-                                {
-                                  item.productoSolicitado
-                                }
-                              </div>
-
-                              <div className="mt-2 flex flex-wrap items-center gap-2">
-                                {item.estadoProceso ===
-                                "Pendiente" ? (
-                                  <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600">
-                                    Pendiente
-                                  </span>
-                                ) : null}
-
-                                {item.estadoProceso ===
-                                "Parcial" ? (
-                                  <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700">
-                                    Parcial
-                                  </span>
-                                ) : null}
-
-                                {item.estadoProceso ===
-                                "Completo" ? (
-                                  <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700">
-                                    Completo
-                                  </span>
-                                ) : null}
-
-                                {item.cantidadProcesadaUnd >
-                                0 ? (
-                                  <span className="text-xs text-slate-500">
-                                    Procesado:{" "}
-                                    <b>
-                                      {item.cantidadProcesadaUnd.toLocaleString(
-                                        "es-CO"
-                                      )}{" "}
-                                      und
-                                    </b>
-                                    {" · "}
-                                    Pendiente:{" "}
-                                    <b>
-                                      {item.cantidadPendienteUnd.toLocaleString(
-                                        "es-CO"
-                                      )}{" "}
-                                      und
-                                    </b>
-                                  </span>
-                                ) : null}
-                              </div>
+                            <div className="text-sm font-medium text-slate-900">
+                              {
+                                item.productoSolicitado
+                              }
                             </div>
 
                             <div className="md:text-right">
@@ -3355,7 +4095,10 @@ export default function ConsumoEmpaquePage() {
                               </div>
 
                               <div className="font-semibold text-slate-900">
-                                {item.cantidadSolicitadaUnd.toLocaleString(
+                                {Number(
+                                  item.cantidadSolicitadaUnd ||
+                                    0
+                                ).toLocaleString(
                                   "es-CO"
                                 )}{" "}
                                 und
@@ -3373,11 +4116,13 @@ export default function ConsumoEmpaquePage() {
                     +{" "}
                     {grupo.items.length -
                       3}{" "}
-                    ítem(s) adicionales. Pulsa{" "}
+                    ítem(s) adicionales.
+                    Pulsa{" "}
                     <b>
                       Ver ítems
                     </b>{" "}
-                    para consultar la orden completa.
+                    para consultar la
+                    orden completa.
                   </div>
                 ) : null}
               </div>

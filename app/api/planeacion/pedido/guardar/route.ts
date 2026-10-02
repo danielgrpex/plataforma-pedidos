@@ -82,12 +82,34 @@ export async function POST(req: Request) {
     }
 
     const observacionesPlaneacion = toStr(body.observacionesPlaneacion);
-    const usuario = toStr(body.usuario) || "planeacion";
-    const items = Array.isArray(body.items) ? body.items : [];
+const usuario = toStr(body.usuario) || "planeacion";
 
-    if (!items.length) {
-      return NextResponse.json({ success: false, message: "items requeridos" }, { status: 400 });
-    }
+const itemsRecibidos = Array.isArray(body.items) ? body.items : [];
+
+if (!itemsRecibidos.length) {
+  return NextResponse.json(
+    { success: false, message: "items requeridos" },
+    { status: 400 }
+  );
+}
+
+/*
+ * REGLA OPERATIVA ACTUAL:
+ *
+ * Todos los ítems de todos los pedidos deben pasar por Corte.
+ *
+ * El backend NO confía en el destino enviado por el navegador.
+ * También anulamos reservas desde Planeación porque el inventario
+ * se controlará posteriormente en planta mediante Producto en Proceso.
+ */
+const items: Body["items"] = itemsRecibidos.map((it) => ({
+  ...it,
+  destino: "Corte" as Destino,
+  reservas: [] as Array<{
+    inventarioId: string;
+    cantidadUnd: number;
+  }>,
+}));
 
     const sheets = await getSheetsClient();
     const fechaRevision = new Date().toISOString();

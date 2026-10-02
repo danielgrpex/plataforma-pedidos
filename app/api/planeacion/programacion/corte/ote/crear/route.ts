@@ -12,8 +12,8 @@ function toNum(v: unknown) {
   const n = Number(v ?? 0);
   return Number.isFinite(n) ? n : 0;
 }
-function pad6(n: number) {
-  return String(Math.max(0, Math.floor(n))).padStart(6, "0");
+function pad4(n: number) {
+  return String(Math.max(0, Math.floor(n))).padStart(4, "0");
 }
 
 type Body = {
@@ -67,7 +67,7 @@ export async function POST(req: Request) {
 
     for (const r of rows) {
       const ote = toStr(r[15]); // P
-      const m = ote.match(/^OTE(\d{2})(\d{6})$/i);
+      const m = ote.match(/^OTE(\d{2})(\d{4})$/i);
       if (!m) continue;
       const year = m[1];
       const seq = Number(m[2]);
@@ -77,7 +77,7 @@ export async function POST(req: Request) {
     }
 
     const nextSeq = maxSeq + 1;
-    const newOTE = `OTE${yy}${pad6(nextSeq)}`;
+    const newOTE = `OTE${yy}${pad4(nextSeq)}`;
 
     // 3) Indexar solicitudes -> sheetRow
     // sheetRow real en Sheets = index + 2 (por header)
