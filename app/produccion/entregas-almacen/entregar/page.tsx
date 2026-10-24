@@ -24,6 +24,7 @@ const USUARIOS_ENTREGA = [
   "Leidy Moreno",
   "Dalia Rodriguez",
   "Johana Begambre",
+  "Angie Pacho",
   "Daniel Alfonso",
 ];
 
