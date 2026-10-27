@@ -7,9 +7,12 @@ import { useRouter } from "next/navigation";
 
 type EmpacadoItem = {
   source: "produccion" | "corte";
-  rowIndexItem: number; // fila en SolicitudesProduccion / SolicitudesCorte
-  code: string; // OPE u OTE
+  rowIndexItem: number;
+  code: string;
+
   rowIndexPedido: any;
+  consecutivo: string;
+
   pedidoKey: string;
   producto: string;
 
@@ -169,7 +172,7 @@ export default function EntregarAlmacenPage() {
                 <tr className="border-b">
                   <th className="py-2 pr-3">Tipo</th>
                   <th className="py-2 pr-3">OPE / OTE</th>
-                  <th className="py-2 pr-3">rowIndexPedido</th>
+                  <th className="py-2 pr-3">Consecutivo</th>
                   <th className="py-2 pr-3">Producto</th>
                   <th className="py-2 pr-3">Total (UND)</th>
                   <th className="py-2 pr-3">Entregado</th>
@@ -188,7 +191,7 @@ export default function EntregarAlmacenPage() {
                     <tr key={key} className="border-b">
                       <td className="py-2 pr-3">{it.source === "produccion" ? "Producción" : "Corte"}</td>
                       <td className="py-2 pr-3 font-medium">{it.code}</td>
-                      <td className="py-2 pr-3">{String(it.rowIndexPedido)}</td>
+                      <td className="py-2 pr-3 font-medium">{it.consecutivo || "—"}</td>
                       <td className="py-2 pr-3">{it.producto}</td>
                       <td className="py-2 pr-3">{String(it.cantidadTotalUnd)}</td>
                       <td className="py-2 pr-3">{String(it.entregadoUnd)}</td>
