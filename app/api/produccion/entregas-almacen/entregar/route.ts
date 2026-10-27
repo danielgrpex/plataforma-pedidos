@@ -556,11 +556,11 @@ export async function POST(
      * Es la fila física del producto dentro
      * de la hoja Pedidos.
      */
-    const rowIndexPedido =
+    const rowIndexPedidoOriginal =
       Number(
         get(
           "rowIndexPedido"
-        ) ?? ""
+        ) ?? 0
       );
 
     const code =
@@ -620,14 +620,13 @@ export async function POST(
 
     if (
       !pedidoKey ||
-      !rowIndexPedido ||
       !code ||
       total <= 0
     ) {
       return NextResponse.json(
         {
           error:
-            "Item sin datos clave (pedidoKey/rowIndexPedido/OPE-OTE/total)",
+            "Item sin datos clave (pedidoKey/OPE-OTE/total)",
         },
         {
           status: 400,
@@ -636,103 +635,249 @@ export async function POST(
     }
 
     /* =======================================================
-       1.1) LEER PEDIDO ORIGINAL Y CONSECUTIVO REAL
-       ======================================================= */
+   1.1) RESOLVER FILA ACTUAL REAL EN PEDIDOS
+   ======================================================= */
 
-    const pedidosHeaders =
-      await readHeaders(
-        "Pedidos"
-      );
+/*
+ * IMPORTANTE:
+ *
+ * rowIndexPedido es una referencia histórica.
+ * Si Pedidos recibió filas nuevas, se ordenó o cambió,
+ * esa fila puede haber dejado de apuntar al mismo item.
+ *
+ * Por eso buscamos nuevamente el item por:
+ *
+ * pedidoKey + producto
+ *
+ * y solo usamos rowIndexPedido como pista.
+ */
 
-    const pedidoRow =
-      await readRow(
-        "Pedidos",
-        rowIndexPedido
-      );
+const pedidosVals =
+  await getBasePrincipalRange(
+    "Pedidos!A:ZZ"
+  );
 
-    if (!pedidoRow.length) {
-      return NextResponse.json(
-        {
-          error:
-            `No se encontró la fila ${rowIndexPedido} en Pedidos.`,
-        },
-        {
-          status: 400,
-        }
-      );
-    }
+const pedidosHeaders =
+  headersFrom(
+    pedidosVals
+  );
 
-    /*
-     * Validación de seguridad:
-     * comprobamos que la fila de Pedidos corresponda
-     * realmente al mismo pedidoKey.
-     */
-    const pedidoKeyOriginal =
+const pedidosRows =
+  pedidosVals
+    .slice(1)
+    .map((pedidoRow, index) => ({
+      rowIndex:
+        index + 2,
+
+      row:
+        pedidoRow,
+    }));
+
+function pedidoGet(
+  pedidoRow: any[],
+  ...names: string[]
+) {
+  return getByHeader(
+    pedidosHeaders,
+    pedidoRow,
+    ...names
+  );
+}
+
+const candidatosPedido =
+  pedidosRows.filter(
+    (item) =>
       String(
-        getByHeader(
-          pedidosHeaders,
-          pedidoRow,
+        pedidoGet(
+          item.row,
           "pedidoKey"
         ) ?? ""
-      ).trim();
+      ).trim() ===
+      pedidoKey
+  );
 
-    if (
-      pedidoKeyOriginal &&
-      pedidoKey &&
-      pedidoKeyOriginal !==
-        pedidoKey
-    ) {
-      console.warn(
-        "[POST entregar] pedidoKey de Solicitud no coincide con Pedidos",
-        {
-          source,
-          rowIndexItem,
-          rowIndexPedido,
-          pedidoKeySolicitud:
-            pedidoKey,
-          pedidoKeyPedidos:
-            pedidoKeyOriginal,
-        }
-      );
+if (
+  !candidatosPedido.length
+) {
+  return NextResponse.json(
+    {
+      error:
+        "No se encontró el pedido original. No se realizó la entrega.",
+    },
+    {
+      status: 400,
+    }
+  );
+}
 
-      return NextResponse.json(
-        {
-          error:
-            "La fila de Pedidos no corresponde al pedido de esta solicitud. No se realizó la entrega.",
-        },
-        {
-          status: 400,
-        }
+const productoNormalizado =
+  norm(producto);
+
+const candidatosProducto =
+  candidatosPedido.filter(
+    (item) => {
+      const productoPedido =
+        String(
+          pedidoGet(
+            item.row,
+            "productoKey",
+            "Producto Key",
+            "Producto",
+            "producto"
+          ) ?? ""
+        ).trim();
+
+      return (
+        norm(
+          productoPedido
+        ) ===
+        productoNormalizado
       );
     }
+  );
 
-    /*
-     * Este SÍ es el consecutivo comercial
-     * que debe mostrarse al usuario.
-     */
-    const consecutivo =
-      String(
-        getByHeader(
-          pedidosHeaders,
-          pedidoRow,
-          "Consecutivo",
-          "Consec",
-          "Consecutivo Pedido"
-        ) ?? ""
-      ).trim();
-
-    if (!consecutivo) {
-      console.warn(
-        "[POST entregar] No se encontró consecutivo comercial",
-        {
-          source,
-          rowIndexItem,
-          rowIndexPedido,
-          pedidoKey,
-        }
-      );
+let pedidoResuelto:
+  | {
+      rowIndex: number;
+      row: any[];
     }
+  | undefined;
 
+/*
+ * 1. Si la fila antigua todavía coincide
+ * con pedidoKey + producto, la usamos.
+ */
+pedidoResuelto =
+  candidatosProducto.find(
+    (item) =>
+      item.rowIndex ===
+      rowIndexPedidoOriginal
+  );
+
+/*
+ * 2. Si solo existe un producto coincidente
+ * dentro del pedido, usamos ese.
+ */
+if (
+  !pedidoResuelto &&
+  candidatosProducto.length ===
+    1
+) {
+  pedidoResuelto =
+    candidatosProducto[0];
+}
+
+/*
+ * 3. Si hay varios productos iguales,
+ * intentamos diferenciar por cantidad.
+ */
+if (
+  !pedidoResuelto &&
+  candidatosProducto.length >
+    1
+) {
+  const candidatosCantidad =
+    candidatosProducto.filter(
+      (item) => {
+        const cantidadPedido =
+          toNumber(
+            pedidoGet(
+              item.row,
+              "cantidadUND",
+              "Cantidad UND",
+              "Cantidad",
+              "cantidad"
+            )
+          );
+
+        return (
+          Math.abs(
+            cantidadPedido -
+              total
+          ) <
+          0.000001
+        );
+      }
+    );
+
+  if (
+    candidatosCantidad.length ===
+    1
+  ) {
+    pedidoResuelto =
+      candidatosCantidad[0];
+  }
+}
+
+/*
+ * 4. Si ese pedidoKey tiene una sola fila,
+ * podemos usarla con seguridad.
+ */
+if (
+  !pedidoResuelto &&
+  candidatosPedido.length ===
+    1
+) {
+  pedidoResuelto =
+    candidatosPedido[0];
+}
+
+if (!pedidoResuelto) {
+  console.error(
+    "[POST entregar] No fue posible resolver item en Pedidos",
+    {
+      source,
+      rowIndexItem,
+      rowIndexPedidoOriginal,
+      pedidoKey,
+      producto,
+      total,
+      candidatosPedido:
+        candidatosPedido.length,
+      candidatosProducto:
+        candidatosProducto.length,
+    }
+  );
+
+  return NextResponse.json(
+    {
+      error:
+        "PEX encontró varias filas posibles para este pedido y no puede identificar con seguridad cuál corresponde. No se realizó la entrega.",
+    },
+    {
+      status: 400,
+    }
+  );
+}
+
+const rowIndexPedidoActual =
+  pedidoResuelto.rowIndex;
+
+const consecutivo =
+  String(
+    pedidoGet(
+      pedidoResuelto.row,
+      "Consecutivo",
+      "Consec",
+      "Consecutivo Pedido"
+    ) ?? ""
+  ).trim();
+
+console.log(
+  "[POST entregar] Pedido resuelto",
+  {
+    rowIndexPedidoOriginal:
+      rowIndexPedidoOriginal,
+
+    rowIndexPedidoActual,
+
+    consecutivo,
+
+    pedidoKey,
+
+    producto,
+  }
+);
     /* =======================================================
        2) CALCULAR ENTREGADO ACUMULADO
        ======================================================= */
@@ -857,10 +1002,18 @@ export async function POST(
           ),
 
         /*
-         * Fila física del producto
+         * Fila ACTUAL resuelta del producto
          * dentro de Pedidos.
          */
-        rowIndexPedido,
+        rowIndexPedido:
+          rowIndexPedidoActual,
+
+        /*
+         * Si la hoja HistorialEntregasAlmacen tiene esta
+         * columna, conservamos también la referencia histórica
+         * que venía en SolicitudesProduccion/SolicitudesCorte.
+         */
+        rowIndexPedidoOriginal,
 
         /*
          * Número comercial visible.
@@ -1014,10 +1167,10 @@ export async function POST(
         );
 
       /*
-       * AQUÍ rowIndexPedido DEBE seguir siendo
-       * la fila física de Pedidos.
-       *
-       * NO usar consecutivo.
+       * Aquí usamos la fila ACTUAL resuelta de Pedidos.
+       * rowIndexPedidoOriginal queda solo como referencia
+       * histórica y nunca se usa para actualizar una fila
+       * si dejó de corresponder al pedido.
        */
       if (
         idxEstadoPedido >=
@@ -1026,7 +1179,7 @@ export async function POST(
         await updateCell(
           "Pedidos",
 
-          rowIndexPedido,
+          rowIndexPedidoActual,
 
           idxEstadoPedido +
             1,
@@ -1041,7 +1194,7 @@ export async function POST(
         await updateCell(
           "Pedidos",
 
-          rowIndexPedido,
+          rowIndexPedidoActual,
 
           idxFechaReal +
             1,
@@ -1067,9 +1220,14 @@ export async function POST(
           ),
 
         /*
-         * Fila técnica en Pedidos.
+         * Referencia histórica que venía en la solicitud.
          */
-        rowIndexPedido,
+        rowIndexPedidoOriginal,
+
+        /*
+         * Fila real actual identificada en Pedidos.
+         */
+        rowIndexPedidoActual,
 
         /*
          * Consecutivo comercial.
